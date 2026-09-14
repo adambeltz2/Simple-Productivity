@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.3.0] - 2026-09-14
+
+### Added
+- Dropbox is now actually connectable: a real app key is registered and
+  set as `DROPBOX_APP_KEY` in `index.html`. The app secret was
+  intentionally never stored anywhere in the repo — the OAuth2 implicit
+  grant this app uses only needs the app key client-side.
+
+### Changed
+- Clicking "Connect Dropbox" now always opens the explainer modal instead
+  of alerting that it's unconfigured.
+
 ## [0.2.1] - 2026-09-14
 
 ### Added

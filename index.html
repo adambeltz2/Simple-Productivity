@@ -270,7 +270,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.2.1";
+  const APP_VERSION = "0.3.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -622,14 +622,13 @@
   // ======================================================================
   // Dropbox: optional backup/sync layer. NEVER the source of truth.
   //
-  // Placeholder wiring, per CLAUDE.md #5: OAuth2 implicit grant (no
-  // client secret -- this is a static SPA with no server to hold one),
-  // full-page redirect to Dropbox and back, token kept in localStorage.
-  // DROPBOX_APP_KEY is intentionally blank until a real app is registered
-  // in the Dropbox App Console -- see backlog.md [FEATURE].
+  // OAuth2 implicit grant (no client secret -- this is a static SPA with
+  // no server to hold one; only the app *key* is ever used client-side,
+  // per CLAUDE.md #5). Full-page redirect to Dropbox and back, token kept
+  // in localStorage.
   // ======================================================================
 
-  const DROPBOX_APP_KEY = ""; // TODO(dropbox): set once an app is registered at dropbox.com/developers/apps
+  const DROPBOX_APP_KEY = "vfcwmj0eu2kdiud";
   const DROPBOX_BACKUP_PATH = "/Notebook Backups/notebook.json";
   let dbx = null;
 
@@ -675,10 +674,6 @@
   }
 
   function dropboxLogin() {
-    if (!DROPBOX_APP_KEY) {
-      alert("Dropbox isn't configured yet in this deployment (DROPBOX_APP_KEY is a placeholder). See backlog.md.");
-      return;
-    }
     dropboxInfoBackdrop.classList.add("active");
   }
 
