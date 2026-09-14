@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.5.0] - 2026-09-14
+
+### Changed
+- Simplified Dropbox sync: dropped the per-project subfolder + internal id
+  + versioned-snapshots model from v0.4.0 in favor of one flat folder
+  (`/Notebook Projects/`) with a single `.md` file per project, named from
+  its title and overwritten in place on every backup. Browsing that folder
+  in Dropbox now looks like nothing more than a folder of markdown files.
+- Removed the "Dropbox history" per-project version browser along with it
+  (no more version history to browse). Discovery ("Check Dropbox" /
+  importing a project found only in Dropbox) still works, now matching by
+  filename instead of a stored id.
+
+### Known tradeoff
+- Renaming a project's title changes which Dropbox file it backs up to
+  next; the file under the old name is left behind rather than renamed.
+  See `BACKLOG.md`.
+
 ## [0.4.0] - 2026-09-14
 
 ### Added
