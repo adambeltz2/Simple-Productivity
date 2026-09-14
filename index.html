@@ -253,12 +253,33 @@
         <div class="markdown-preview" id="editPreview"></div>
         <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
       </div>
+      <div class="hint" id="versionRestoreHint" style="display:none; color:var(--accent-ink); font-weight:600;"></div>
       <div class="modal-actions">
-        <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
+          <button class="btn" id="versionHistoryBtn" type="button" style="display:none;">Version history</button>
+        </div>
         <div class="right">
           <button class="btn" id="cancelEditBtn" type="button">Cancel</button>
           <button class="btn primary" id="saveProjectBtn" type="button">Save</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dropbox version history modal: lists this project's revisions as kept
+       by Dropbox itself (server-side, not a second app-side snapshot store)
+       and lets the user preview one -- restoring loads it into the editor's
+       fields but applies nothing until Save is clicked, matching this app's
+       "never silently apply" principle used for discovery too. -->
+  <div class="modal-backdrop" id="dropboxHistoryBackdrop">
+    <div class="modal" style="max-width:480px;">
+      <h2>Version history</h2>
+      <p style="color:var(--ink-dim); font-size:0.88rem; line-height:1.6;">Restoring loads that version into the editor — nothing is saved until you click Save.</p>
+      <div id="dropboxHistoryList" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto; margin:12px 0;"></div>
+      <div class="modal-actions">
+        <button class="btn" id="dbxHistoryClose" type="button">Close</button>
+        <div class="right"></div>
       </div>
     </div>
   </div>
@@ -313,7 +334,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.8.0";
+  const APP_VERSION = "0.9.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -684,6 +705,8 @@
   const editTabWrite = document.getElementById("editTabWrite");
   const editTabPreview = document.getElementById("editTabPreview");
   const deleteProjectBtn = document.getElementById("deleteProjectBtn");
+  const versionHistoryBtn = document.getElementById("versionHistoryBtn");
+  const versionRestoreHint = document.getElementById("versionRestoreHint");
 
   function setEditorTab(mode) {
     const isPreview = mode === "preview";
@@ -701,6 +724,24 @@
   editBody.addEventListener("input", () => {
     if (editTabPreview.classList.contains("active")) editPreview.innerHTML = renderMarkdown(editBody.value);
   });
+
+  // Snapshot of the fields as first loaded into the editor (the saved
+  // project's values, or the new-project defaults) -- editorIsDirty()
+  // compares the live fields against this to decide whether closing the
+  // editor (backdrop click, Escape, or Cancel) needs a confirmation, so a
+  // misclick or stray Escape can never silently discard an edit. Restoring
+  // an older Dropbox version (see openVersionHistory()) loads new values
+  // into the same fields without touching this snapshot, so it's "dirty"
+  // by the same comparison until Saved -- exactly the protection it needs.
+  let editorSnapshot = null;
+
+  function editorIsDirty() {
+    if (!editorSnapshot) return false;
+    return editTitle.value !== editorSnapshot.title
+      || editSortOrder.value !== editorSnapshot.sortOrder
+      || editActive.checked !== editorSnapshot.active
+      || editBody.value !== editorSnapshot.body;
+  }
 
   function openEditor(id) {
     editingId = id || null;
@@ -721,6 +762,10 @@
       editBody.value = "# \n\n";
       deleteProjectBtn.style.display = "none";
     }
+    editorSnapshot = { title: editTitle.value, sortOrder: editSortOrder.value, active: editActive.checked, body: editBody.value };
+    versionRestoreHint.style.display = "none";
+    versionRestoreHint.textContent = "";
+    versionHistoryBtn.style.display = (dbx && editingId) ? "" : "none";
     setEditorTab("write");
     editorBackdrop.classList.add("active");
     editTitle.focus();
@@ -729,11 +774,20 @@
   function closeEditor() {
     editorBackdrop.classList.remove("active");
     editingId = null;
+    editorSnapshot = null;
+  }
+
+  // The only way to close without saving -- Cancel, a backdrop click, or
+  // Escape -- so every one of those routes through here rather than
+  // calling closeEditor() directly, per the note on editorSnapshot above.
+  function requestCloseEditor() {
+    if (editorIsDirty() && !confirm("Discard unsaved changes to this project?")) return;
+    closeEditor();
   }
 
   document.getElementById("newProjectBtn").addEventListener("click", () => openEditor(null));
-  document.getElementById("cancelEditBtn").addEventListener("click", closeEditor);
-  editorBackdrop.addEventListener("click", (e) => { if (e.target === editorBackdrop) closeEditor(); });
+  document.getElementById("cancelEditBtn").addEventListener("click", requestCloseEditor);
+  editorBackdrop.addEventListener("click", (e) => { if (e.target === editorBackdrop) requestCloseEditor(); });
 
   document.getElementById("saveProjectBtn").addEventListener("click", () => {
     const title = editTitle.value.trim();
@@ -791,7 +845,7 @@
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && editorBackdrop.classList.contains("active")) closeEditor();
+    if (e.key === "Escape" && editorBackdrop.classList.contains("active")) requestCloseEditor();
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       document.getElementById("searchInput").focus();
@@ -1198,6 +1252,77 @@
     if (dbx) disconnectDropbox();
     else dropboxLogin();
   });
+
+  // ======================================================================
+  // Version history: Dropbox already keeps its own revision history for
+  // every file (filesListRevisions / a specific rev's content via
+  // filesDownload) -- rather than building a second, app-side snapshot
+  // store (the per-project-subfolder model removed in v0.5.0), this reads
+  // that history directly for the one file this project already syncs to.
+  // Retention is whatever the connected Dropbox account's plan grants, not
+  // something this app controls. Restoring only loads a version into the
+  // editor's fields -- it isn't applied until Save, so it goes through the
+  // same editorIsDirty() guard as any other unsaved edit, and a normal
+  // Save afterwards pushes it back to Dropbox like any other change.
+  // ======================================================================
+
+  const dropboxHistoryBackdrop = document.getElementById("dropboxHistoryBackdrop");
+  const dropboxHistoryList = document.getElementById("dropboxHistoryList");
+
+  function closeVersionHistory() {
+    dropboxHistoryBackdrop.classList.remove("active");
+  }
+
+  function restoreVersion(rev, serverModified) {
+    closeVersionHistory();
+    downloadProjectFile(rev) // filesDownload's `path` also accepts a rev id directly.
+      .then((parsed) => {
+        editTitle.value = parsed.title || "";
+        editSortOrder.value = String(parsed.sortOrder || 0);
+        editActive.checked = !!parsed.active;
+        editBody.value = parsed.body || "";
+        if (editTabPreview.classList.contains("active")) editPreview.innerHTML = renderMarkdown(editBody.value);
+        versionRestoreHint.textContent = `Showing the version from ${new Date(serverModified).toLocaleString()} — click Save to keep it, or Cancel to discard.`;
+        versionRestoreHint.style.display = "";
+      })
+      .catch((err) => {
+        if (!handleDropboxAuthError(err)) alert("Couldn't load that version from Dropbox.");
+      });
+  }
+
+  function openVersionHistory() {
+    if (!dbx || !editingId) return;
+    const project = projects.find((p) => p.id === editingId);
+    if (!project) return;
+    const path = project.dropboxFile || dropboxPath(project);
+    dropboxHistoryList.innerHTML = `<div class="rail-empty">Loading…</div>`;
+    dropboxHistoryBackdrop.classList.add("active");
+    dbx.filesListRevisions({ path, mode: { ".tag": "path" }, limit: 10 })
+      .then((res) => {
+        const entries = (res.result && res.result.entries) || [];
+        if (!entries.length) {
+          dropboxHistoryList.innerHTML = `<div class="rail-empty">No earlier versions found.</div>`;
+          return;
+        }
+        dropboxHistoryList.innerHTML = entries.map((e, i) => `
+          <div class="rail-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <span>${escapeHtml(new Date(e.server_modified).toLocaleString())}${i === 0 ? " (most recent)" : ""}</span>
+            <button type="button" class="btn" data-idx="${i}">Restore</button>
+          </div>`).join("");
+        dropboxHistoryList.querySelectorAll("button[data-idx]").forEach((btn) => {
+          const entry = entries[Number(btn.dataset.idx)];
+          btn.addEventListener("click", () => restoreVersion(entry.rev, entry.server_modified));
+        });
+      })
+      .catch((err) => {
+        if (handleDropboxAuthError(err)) { closeVersionHistory(); return; }
+        dropboxHistoryList.innerHTML = `<div class="rail-empty">This project hasn't backed up to Dropbox yet.</div>`;
+      });
+  }
+
+  versionHistoryBtn.addEventListener("click", openVersionHistory);
+  document.getElementById("dbxHistoryClose").addEventListener("click", closeVersionHistory);
+  dropboxHistoryBackdrop.addEventListener("click", (e) => { if (e.target === dropboxHistoryBackdrop) closeVersionHistory(); });
 
   // Expose for tests.
   window.__notebook = { performDropboxBackup, scheduleAutoBackup, discoverDropboxProjects, handleDropboxAuthError };

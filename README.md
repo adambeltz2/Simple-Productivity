@@ -161,6 +161,22 @@ purge.
 
 **Deleting a project** also deletes its file from Dropbox, if connected.
 
+**Version history**: Dropbox already keeps its own revision history for
+every file it stores — Notebook doesn't duplicate that with a second,
+app-side snapshot store (the per-project-subfolder model from v0.4.0,
+removed in v0.5.0). Instead, "Version history" in the note editor (visible
+once Dropbox is connected and the project has synced at least once) reads
+that history straight from Dropbox and lists each prior version by
+timestamp. Restoring one loads it into the editor's fields — nothing is
+applied until you click Save, same as everywhere else data comes in from
+Dropbox. How far back that history goes depends on the connected account's
+own Dropbox plan, not anything Notebook controls.
+
+**Unsaved changes are protected**: closing the editor via the backdrop,
+Escape, or Cancel while a field differs from what was loaded (including a
+previewed-but-not-yet-saved restored version) asks for confirmation first,
+so a stray click or keypress can't silently discard an edit.
+
 See `BACKLOG.md` for what's still open (every project is re-uploaded on
 each auto-backup even if only one changed; cross-device conflict handling
 for edits to the *same* project between backups).

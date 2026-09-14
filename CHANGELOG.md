@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.9.0] - 2026-09-14
+
+### Added
+- "Version history" in the note editor: reads Dropbox's own built-in
+  revision history for a project's file (no second, app-side snapshot
+  store) and lets you preview an earlier version by restoring it into the
+  editor's fields. Nothing is applied until you click Save, matching the
+  app's existing "never silently apply" principle for anything that comes
+  in from Dropbox.
+- Closing the note editor with unsaved changes (backdrop click, Escape, or
+  Cancel) now asks for confirmation instead of silently discarding the
+  edit — this also protects a previewed, not-yet-saved restored version.
+
 ## [0.8.0] - 2026-09-14
 
 ### Fixed
