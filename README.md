@@ -1,11 +1,13 @@
 # Notebook
 
+**Live:** https://adambeltz2.github.io/Simple-Productivity/
+
 A single dashboard of "projects" — each one an editable markdown note. The
 dashboard numbers your **active** projects (1 through N, in the sort order
 you choose), shows a preview of each note, and pulls every `- [ ] task` and
-`!followup:` marker out of your notes into two always-visible rails on the
-right. A header search box searches across every note, task, and follow-up
-at once.
+`#followup`-tagged line out of your notes into two always-visible rails on
+the right. A header search box searches across every note, task, and
+follow-up at once.
 
 It's local-first and entirely client-side: there's no backend, no database,
 no account required. Everything lives in this browser's `localStorage`.

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.2.1] - 2026-09-14
+
+### Added
+- GitHub Actions workflow (`.github/workflows/deploy-pages.yml`) deploying
+  `index.html` to GitHub Pages on every push to `main`.
+- Live URL added to `README.md`: https://adambeltz2.github.io/Simple-Productivity/
+
 ## [0.2.0] - 2026-09-14
 
 ### Added
