@@ -38,9 +38,29 @@ test('creating a project shows up numbered on the dashboard', async ({ page }) =
   await expect(page.locator('#activeCount')).toHaveText('5 active');
 });
 
-test('Dropbox connect button is disabled behavior when app key is unset', async ({ page }) => {
-  page.once('dialog', (dialog) => dialog.accept());
+test('Dropbox connect opens the explainer modal and links to the real OAuth authorize URL', async ({ page }) => {
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox not connected');
+
   await page.click('#dbxBtn');
+  await expect(page.locator('#dropboxInfoBackdrop')).toHaveClass(/active/);
+
+  // Intercept instead of following the redirect -- Dropbox itself is out of scope here.
+  await page.route('https://www.dropbox.com/oauth2/authorize**', (route) => route.abort());
+  const [request] = await Promise.all([
+    page.waitForRequest('https://www.dropbox.com/oauth2/authorize**'),
+    page.click('#dbxInfoContinue'),
+  ]);
+  const url = new URL(request.url());
+  expect(url.searchParams.get('client_id')).toBe('vfcwmj0eu2kdiud');
+  expect(url.searchParams.get('response_type')).toBe('token');
+  expect(url.searchParams.get('redirect_uri')).toBeTruthy();
+});
+
+test('Dropbox explainer modal can be dismissed without connecting', async ({ page }) => {
+  await page.click('#dbxBtn');
+  await expect(page.locator('#dropboxInfoBackdrop')).toHaveClass(/active/);
+  await page.click('#dbxInfoCancel');
+  await expect(page.locator('#dropboxInfoBackdrop')).not.toHaveClass(/active/);
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox not connected');
 });
 

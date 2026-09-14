@@ -3,9 +3,6 @@
 Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
 `[FEATURE]`, `[REFACTOR]`, `[DEBT]`.
 
-- `[FEATURE]` Register a real Dropbox app and set `DROPBOX_APP_KEY` in
-  `index.html`. Currently a deliberate placeholder — see README.md's
-  Dropbox section. _Affected: `index.html`._
 - `[FEATURE]` Dropbox restore UI: list/preview available backups and let
   the user pull one down, mirroring Simple Gantt's "Projects found in
   Dropbox" flow. Right now only backup (upload) is wired up. _Affected:

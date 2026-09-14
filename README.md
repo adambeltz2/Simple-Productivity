@@ -62,18 +62,13 @@ loses its notes.
 
 ## Dropbox sync
 
-Dropbox integration is currently a **placeholder**: the OAuth flow, token
-handling, and backup call are wired up (see `index.html`, search for
-`DROPBOX_APP_KEY`), but no app key is registered yet, so clicking "Connect
-Dropbox" surfaces a clear message instead of failing silently. To turn it
-on:
+Dropbox is connected: a scoped app is registered in the [Dropbox App Console](https://www.dropbox.com/developers/apps)
+with its redirect URI set to this app's deployed URL, and its **app key**
+(never the app secret — this is a static SPA with no server to keep a
+secret on, so the OAuth2 implicit grant is used instead) is set as
+`DROPBOX_APP_KEY` in `index.html`.
 
-1. Register an app at the [Dropbox App Console](https://www.dropbox.com/developers/apps)
-   (scoped app, "App folder" access is enough for a single backup file).
-2. Set its redirect URI to this app's deployed URL.
-3. Put the app key into the `DROPBOX_APP_KEY` constant in `index.html`.
-
-Once connected, "Connect Dropbox" backs up the full project list as JSON to
+Clicking "Connect Dropbox" backs up the full project list as JSON to
 `/Notebook Backups/notebook.json` in the user's Dropbox. This browser's
 `localStorage` remains authoritative; Dropbox is only ever a copy. See
 `BACKLOG.md` for the remaining Dropbox work (restore UI, auto-backup,
