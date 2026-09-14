@@ -20,16 +20,6 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
 - `[FEATURE]` CSV/JSON export-import of all projects, as a portable
   interchange format independent of Dropbox (matches Simple Gantt's CSV
   round-trip). _Affected: `index.html`._
-- `[DEBT]` No catch-up sync on an ordinary page load: `initDropboxFromRedirect()`
-  only pushes/checks Dropbox right after a fresh OAuth (re)authenticate
-  (`justAuthenticated`), never on a plain reload with an already-saved
-  token. If an edit's 60s auto-backup debounce never fires (the tab is
-  closed first), that edit sits unsynced in `localStorage` indefinitely —
-  not lost (the *next* edit anywhere pushes current state and catches it
-  up), but Dropbox can silently go stale for as long as the user doesn't
-  edit again. No `beforeunload`/`visibilitychange` flush either. Simplest
-  fix: treat resuming an already-connected session the same as a fresh
-  connect and always push on load. _Affected: `index.html`._
 - `[DEBT]` A file renamed directly in Dropbox (not through the app) isn't
   matched back to its project: discovery only ever matches a file to a
   known project by filename, and a renamed file's new name won't match, so

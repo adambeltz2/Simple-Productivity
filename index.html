@@ -313,7 +313,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.7.0";
+  const APP_VERSION = "0.8.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -437,16 +437,18 @@
     });
 
     const title = (project.title && project.title.trim()) || derivedTitle || "Untitled";
+    // The swallowed heading is prepended whenever it's meaningful (i.e. not
+    // just a duplicate of the title), rather than only used as a last-resort
+    // fallback when previewParts is entirely empty -- otherwise a note whose
+    // other lines are all consumed by tasks/follow-ups except one weak
+    // trailing line (e.g. a lone "file" attachment note) would show that
+    // weak line instead of the more meaningful heading (e.g. "9/14/2026").
+    const previewLines = derivedTitle && derivedTitle !== title ? [derivedTitle, ...previewParts] : previewParts;
     // Joined with a real line break (rendered via .project-preview's
     // white-space: pre-line) rather than a space, so separate lines in the
     // source -- e.g. two bullet points -- don't collapse into one run-on
     // line that reads differently from the editor's own Preview tab.
-    let preview = previewParts.join("\n");
-    // If the note has no other prose (everything else was a task/follow-up,
-    // or nothing at all), fall back to the swallowed heading -- unless it's
-    // just a duplicate of the title, where an empty preview reads better
-    // than repeating it.
-    if (!preview && derivedTitle && derivedTitle !== title) preview = derivedTitle;
+    const preview = previewLines.slice(0, 3).join("\n");
 
     return { title, preview, tasks, followups };
   }
@@ -811,11 +813,12 @@
   // /Notebook Projects/ in Dropbox (or on disk after a Dropbox sync) looks
   // exactly like the note format itself, nothing more. See CLAUDE.md #5.
   const DROPBOX_FOLDER = "/Notebook Projects";
-  // Matches Simple Gantt's AUTO_BACKUP_DELAY_MS exactly -- same debounce,
-  // same reasoning: edits commit to localStorage synchronously regardless
-  // of Dropbox, so there's no data-loss risk in waiting this long before
-  // pushing a backup, and it keeps a burst of edits from spamming uploads.
-  const AUTO_BACKUP_DELAY_MS = 60000;
+  // Shorter than Simple Gantt's original 60s: edits commit to localStorage
+  // synchronously regardless of Dropbox, so there's no data-loss risk in
+  // waiting before pushing a backup -- this just keeps a burst of edits
+  // (e.g. several task toggles in a row) from spamming uploads, while not
+  // leaving "backup pending" showing for a full minute after the user stops.
+  const AUTO_BACKUP_DELAY_MS = 15000;
 
   let dbxAutoBackupTimer = null;
   let discoveredCandidates = [];
@@ -942,20 +945,26 @@
     if (saved && window.Dropbox) {
       dbx = new Dropbox.Dropbox({ accessToken: saved });
       setDropboxUi("connected");
-      // Only right after an actual (re)authenticate, not on every ordinary
-      // page load with an already-saved token -- otherwise this would run
-      // on every reload. Two independent things happen, both immediately
-      // (not debounced -- connecting is a deliberate, one-time moment,
-      // unlike an edit): push this browser's projects to Dropbox (each
-      // still gets its own file; nothing here is a merge), and separately
-      // check for projects that exist in Dropbox but aren't known here
-      // yet, which are only ever *offered* via the discovery modal --
-      // never imported without that confirmation, matching Simple Gantt's
-      // "no automatic merge/reconciliation" principle. See CLAUDE.md #5.
-      if (justAuthenticated) {
-        performDropboxBackup(true);
-        discoverDropboxProjects(false);
-      }
+      // Push on every load where Dropbox is connected -- not just right
+      // after a fresh (re)authenticate -- so an edit whose 60s debounce
+      // never got to fire (the tab closed first) still catches up the
+      // moment the app is opened again, instead of leaving Dropbox stale
+      // indefinitely until some future edit happens to trigger a backup.
+      // This push is immediate (not debounced) and idempotent (overwrite
+      // mode, same content if nothing changed) either way -- see
+      // BACKLOG.md for where this gap was tracked.
+      performDropboxBackup(true);
+      // Discovery, in contrast, only runs right after an actual
+      // (re)authenticate: it can surface a modal, and re-running it on
+      // every ordinary reload would nag. "Check Dropbox" (topbar) covers
+      // the ordinary-reload case, on demand. Two independent things,
+      // neither one a merge: push this browser's projects to Dropbox
+      // (each still gets its own file), and separately check for
+      // projects that exist in Dropbox but aren't known here yet, which
+      // are only ever *offered* via the discovery modal -- never
+      // imported without that confirmation, matching Simple Gantt's "no
+      // automatic merge/reconciliation" principle. See CLAUDE.md #5.
+      if (justAuthenticated) discoverDropboxProjects(false);
     } else {
       setDropboxUi("disconnected");
     }
