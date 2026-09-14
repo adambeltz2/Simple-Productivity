@@ -104,7 +104,7 @@ file it backs up to next** — the file under the old name is left behind
 rather than renamed (see `BACKLOG.md`).
 
 **On connect** (and on reconnecting after a session expires), two things
-happen right away: every local project is pushed to Dropbox, and Notebook
+happen right away: every real project is pushed to Dropbox, and Notebook
 checks every `.md` file in that folder against what it already knows —
 both a file that doesn't match any known project (added directly in
 Dropbox, or synced from another device) **and** a file whose name matches
@@ -120,6 +120,18 @@ Dropbox" (or just reconnect) and confirm it in the checklist that appears.
 **After an edit**, a backup is pushed automatically ~60 seconds after you
 stop editing (not on every keystroke) — the status text next to the
 Dropbox button shows "backup pending" / "backing up…" / connected.
+
+**Sample projects never touch Dropbox.** The handful of onboarding notes
+Notebook seeds into a brand-new browser (Kitchen Remodel, and the rest) are
+placeholders, not real data — they're skipped by every backup, so opening
+the app in a fresh/private browser never pushes demo content into your
+real Dropbox. The moment you edit one and hit Save, or Dropbox turns up
+real data to import, it stops being a placeholder: an edited sample starts
+backing up like anything else, and importing real data from Dropbox clears
+out whatever samples you hadn't touched — so there's nothing to manually
+purge.
+
+**Deleting a project** also deletes its file from Dropbox, if connected.
 
 See `BACKLOG.md` for what's still open (every project is re-uploaded on
 each auto-backup even if only one changed; cross-device conflict handling
