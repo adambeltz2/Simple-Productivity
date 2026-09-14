@@ -108,6 +108,35 @@ test('footer shows a version number and opens GitHub / Buy Me a Coffee in new ta
   await expect(coffeeLink).toHaveAttribute('target', '_blank');
 });
 
+// Sample/onboarding projects (isSample: true) are deliberately excluded
+// from Dropbox backup -- see seedProjects() in index.html -- so tests that
+// exercise actual backup behavior need real (non-sample) projects seeded
+// instead of relying on the app's default onboarding data. This mirrors
+// that default seed content exactly (same titles/order/bodies) but without
+// the isSample flag, so existing assertions about counts, slugs, and card
+// order still hold.
+function realProjectsFixture() {
+  const now = Date.now();
+  return [
+    { id: 'p1', title: 'Kitchen Remodel', active: true, sortOrder: 1, updatedAt: now,
+      body: '# Kitchen Remodel\n\nCabinet quote came in at $14,200. Need to confirm with Dana before signing off on the oak finish vs walnut.\n\n- [ ] Order walnut sample panel\n- [ ] Schedule electrician walkthrough\n\n- Confirm oak vs walnut finish with Dana #followup\n' },
+    { id: 'p2', title: 'Client — Meridian Co.', active: true, sortOrder: 2, updatedAt: now,
+      body: '# Meridian Co. Engagement\n\nPhase 2 scope doc sent for review.\n\n- Chase legal for the Phase 2 redline #followup\n' },
+    { id: 'p3', title: 'Personal Taxes 2025', active: true, sortOrder: 3, updatedAt: now,
+      body: '# Taxes\n\nMissing 1099 from the consulting gig.\n\n- [x] Email accountant re: missing 1099\n' },
+    { id: 'p4', title: 'Half Marathon Training', active: true, sortOrder: 4, updatedAt: now,
+      body: '# Training Log\n\nWeek 6 of 12.\n' },
+    { id: 'p5', title: 'Garage Sale (archived)', active: false, sortOrder: 5, updatedAt: now,
+      body: '# Garage Sale\n\nCleared $340.\n' },
+    { id: 'p6', title: 'Old Apartment Move-out', active: false, sortOrder: 6, updatedAt: now,
+      body: '# Move-out\n\nDeposit refunded.\n' },
+  ];
+}
+
+async function seedRealProjects(page) {
+  await page.addInitScript((json) => localStorage.setItem('notebook_projects', json), JSON.stringify(realProjectsFixture()));
+}
+
 // Shared setup for the Dropbox tests below: blocks the real SDK (its
 // <script> tag would otherwise execute after addInitScript's stub and
 // clobber it, once wherever this runs can actually reach the real CDN) and
@@ -188,12 +217,13 @@ async function stubDropboxSdk(page) {
 }
 
 test('connecting pushes every local project to Dropbox as its own flat file, named from its title', async ({ page }) => {
+  await seedRealProjects(page);
   await stubDropboxSdk(page);
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
 
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected');
-  // 6 seeded sample projects (4 active + 2 inactive) -- every one backs up, not just active ones.
+  // 6 real (non-sample) projects (4 active + 2 inactive) -- every one backs up, not just active ones.
   await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
   const paths = await page.evaluate(() => window.__uploads.map((u) => u.path));
   expect(new Set(paths).size).toBe(6); // each project got its own distinct file
@@ -204,6 +234,7 @@ test('connecting pushes every local project to Dropbox as its own flat file, nam
 test('re-backing up a renamed project leaves the old file behind under its previous name', async ({ page }) => {
   // This is the documented tradeoff of matching by filename instead of a
   // stored id -- see BACKLOG.md.
+  await seedRealProjects(page);
   await stubDropboxSdk(page);
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
@@ -257,7 +288,10 @@ test('importing a discovered project adds it locally, and it is not offered agai
   await page.click('#dbxDiscoveryImport');
 
   await expect(page.locator('.project-card', { hasText: 'Remote Only Project' })).toBeVisible();
-  await expect(page.locator('#activeCount')).toHaveText('5 active');
+  // Real Dropbox data just arrived -- the untouched onboarding samples are
+  // cleared automatically, leaving only what was actually imported.
+  await expect(page.locator('#activeCount')).toHaveText('1 active');
+  await expect(page.locator('.project-card', { hasText: 'Kitchen Remodel' })).toHaveCount(0);
 
   // Re-checking manually should find nothing new or changed now: the
   // imported project's fields match the Dropbox file byte-for-byte.
@@ -267,6 +301,7 @@ test('importing a discovered project adds it locally, and it is not offered agai
 });
 
 test('editing a known project\'s file directly in Dropbox is detected as "changed" on next check', async ({ page }) => {
+  await seedRealProjects(page);
   await stubDropboxSdk(page);
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
@@ -286,6 +321,7 @@ test('editing a known project\'s file directly in Dropbox is detected as "change
 });
 
 test('confirming a change made directly in Dropbox updates the existing project in place, not as a duplicate', async ({ page }) => {
+  await seedRealProjects(page);
   await stubDropboxSdk(page);
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
@@ -306,6 +342,7 @@ test('confirming a change made directly in Dropbox updates the existing project 
 });
 
 test('edits are debounced before backing up, not pushed on every change', async ({ page }) => {
+  await seedRealProjects(page);
   await stubDropboxSdk(page);
   await page.clock.install();
 
@@ -321,6 +358,71 @@ test('edits are debounced before backing up, not pushed on every change', async 
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected');
   // One more push of all 6 projects (performDropboxBackup backs up everything, not just the edited one).
   expect(await page.evaluate(() => window.__uploads.length)).toBe(12);
+});
+
+test('onboarding sample projects are never backed up to Dropbox', async ({ page }) => {
+  // Deliberately no seedRealProjects() here -- this exercises the app's
+  // actual default (sample) seed data.
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected');
+  // No path/not_found rejection to wait out and no uploads to poll for --
+  // give the (silent) no-op backup a moment, then assert nothing happened.
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__uploads.length)).toBe(0);
+});
+
+test('editing a sample project makes it real, so it backs up on the next connect', async ({ page }) => {
+  await stubDropboxSdk(page);
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  expect(await page.evaluate(() => window.__uploads.length)).toBe(0); // still just samples
+
+  await page.click('.project-card >> nth=0'); // Kitchen Remodel
+  await page.click('#saveProjectBtn'); // unchanged, but saved -- that's enough to count as touched
+  await page.evaluate(() => window.__notebook.performDropboxBackup(true));
+
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(1);
+  expect(await page.evaluate(() => window.__uploads[0].path)).toBe('/Notebook Projects/kitchen-remodel.md');
+});
+
+test('importing real data from Dropbox clears any untouched sample projects', async ({ page }) => {
+  await stubDropboxSdk(page);
+  await page.addInitScript(() => {
+    window.__dbxFiles = [{
+      path_lower: '/notebook projects/remote-only-project.md',
+      name: 'remote-only-project.md',
+      client_modified: '2026-01-01T12:00:00Z',
+      contents: '---\ntitle: "Remote Only Project"\nactive: true\nsortOrder: 1\n---\n# Remote Only Project\n',
+    }];
+  });
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
+  await page.click('#dbxDiscoveryImport');
+
+  await expect(page.locator('#activeCount')).toHaveText('1 active');
+  for (const sample of ['Kitchen Remodel', 'Client — Meridian Co.', 'Personal Taxes 2025', 'Half Marathon Training']) {
+    await expect(page.locator('.project-card', { hasText: sample })).toHaveCount(0);
+  }
+});
+
+test('deleting a project also deletes its file from Dropbox when connected', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(true);
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.click('.project-card >> nth=0'); // Kitchen Remodel
+  await page.click('#deleteProjectBtn');
+
+  await expect.poll(() => page.evaluate(() => window.__deletes.length)).toBe(1);
+  expect(await page.evaluate(() => window.__deletes[0])).toBe('/Notebook Projects/kitchen-remodel.md');
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(false);
 });
 
 test('note preview falls back to body content (not "(empty note)") when the only prose line is a heading and the project has an explicit title', async ({ page }) => {
@@ -344,6 +446,17 @@ test('note preview does not repeat the title when the body opens with a heading 
 
   const card = page.locator('.project-card', { hasText: 'Kitchen Remodel' }).last();
   await expect(card.locator('.project-preview')).toHaveText('Cabinet quote came in at $14,200.');
+});
+
+test('dashboard preview keeps separate body lines on separate lines, not run together', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.click('#newProjectBtn');
+  await page.fill('#editTitle', 'A');
+  await page.fill('#editBody', '# File 1\n\n- Note 1\n- Note 2\n');
+  await page.click('#saveProjectBtn');
+
+  const card = page.locator('.project-card', { hasText: 'A' }).last();
+  await expect(card.locator('.project-preview')).toHaveText('Note 1\nNote 2');
 });
 
 test('the editor\'s Preview tab renders markdown instead of raw source', async ({ page }) => {

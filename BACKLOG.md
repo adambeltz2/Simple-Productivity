@@ -33,11 +33,11 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
   over what's already there — no version history to fall back on, and two
   devices editing the *same* project between backups can't have their
   changes combined automatically. _Affected: `index.html`._
-- `[DEBT]` `performDropboxBackup()` re-uploads every local project on each
-  auto-backup, even ones that haven't changed since the last one — fine at
-  personal-notebook scale, but wasteful as the project count grows. Track
-  a per-project dirty flag (or a body hash) and only back up what actually
-  changed. _Affected: `index.html`._
+- `[DEBT]` `performDropboxBackup()` re-uploads every real (non-sample)
+  local project on each auto-backup, even ones that haven't changed since
+  the last one — fine at personal-notebook scale, but wasteful as the
+  project count grows. Track a per-project dirty flag (or a body hash) and
+  only back up what actually changed. _Affected: `index.html`._
 - `[DEBT]` Search is a plain substring match over title/body; consider a
   lightweight fuzzy/ranked index (still client-side, still zero
   dependencies unless one is clearly justified per `CLAUDE.md` §5) once the
@@ -45,5 +45,7 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
   _Affected: `index.html`._
 - `[DEBT]` No drag-and-drop reordering of `sortOrder` yet — it's only
   editable as a raw number in the note editor. _Affected: `index.html`._
-- `[DEBT]` No undo for project deletion beyond the browser confirm dialog.
+- `[DEBT]` No undo for project deletion beyond the browser confirm dialog
+  — and since deleting a project now also deletes its Dropbox file when
+  connected, this is more consequential than it used to be.
   _Affected: `index.html`._

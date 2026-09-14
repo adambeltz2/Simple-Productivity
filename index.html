@@ -100,7 +100,7 @@
   .project-num { font-family: 'Fraunces', serif; font-weight: 500; font-size: 1.5rem; color: var(--accent); line-height: 1; min-width: 1.4em; }
   .project-title { font-size: 1.02rem; font-weight: 600; line-height: 1.25; color: var(--ink); }
   .project-meta { font-size: 0.72rem; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; }
-  .project-preview { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .project-preview { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
   .project-tags { display: flex; gap: 6px; margin-top: auto; flex-wrap: wrap; }
   .tag { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
   .tag.task { background: var(--task-soft); color: var(--task); }
@@ -310,7 +310,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.5.1";
+  const APP_VERSION = "0.6.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -328,31 +328,34 @@
       : "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
+  // isSample: true marks these as onboarding placeholders, not real data --
+  // see saveProjects()'s Dropbox skip and the discovery import handler's
+  // auto-clear below for what that flag actually does.
   function seedProjects() {
     const now = Date.now();
     return [
       {
-        id: uid(), title: "Kitchen Remodel", active: true, sortOrder: 1, updatedAt: now - 2 * 3600e3,
+        id: uid(), title: "Kitchen Remodel", active: true, sortOrder: 1, updatedAt: now - 2 * 3600e3, isSample: true,
         body: "# Kitchen Remodel\n\nCabinet quote came in at $14,200. Need to confirm with Dana before signing off on the oak finish vs walnut.\n\n- [ ] Order walnut sample panel\n- [ ] Schedule electrician walkthrough\n\n- Confirm oak vs walnut finish with Dana #followup\n"
       },
       {
-        id: uid(), title: "Client — Meridian Co.", active: true, sortOrder: 2, updatedAt: now - 24 * 3600e3,
+        id: uid(), title: "Client — Meridian Co.", active: true, sortOrder: 2, updatedAt: now - 24 * 3600e3, isSample: true,
         body: "# Meridian Co. Engagement\n\nPhase 2 scope doc sent for review. Waiting on legal redline before the kickoff call next Tuesday.\n\n- Chase legal for the Phase 2 redline #followup\n- Ask kickoff call to move to Wed if redline slips #followup\n"
       },
       {
-        id: uid(), title: "Personal Taxes 2025", active: true, sortOrder: 3, updatedAt: now - 3 * 86400e3,
+        id: uid(), title: "Personal Taxes 2025", active: true, sortOrder: 3, updatedAt: now - 3 * 86400e3, isSample: true,
         body: "# Taxes\n\nMissing 1099 from the consulting gig in March. Everything else is in the folder and reconciled against the spreadsheet.\n\n- [x] Email accountant re: missing 1099\n"
       },
       {
-        id: uid(), title: "Half Marathon Training", active: true, sortOrder: 4, updatedAt: now - 5 * 86400e3,
+        id: uid(), title: "Half Marathon Training", active: true, sortOrder: 4, updatedAt: now - 5 * 86400e3, isSample: true,
         body: "# Training Log\n\nWeek 6 of 12. Long run Sunday, 11 miles. Knee felt fine after the new insoles -- keep an eye on it anyway.\n"
       },
       {
-        id: uid(), title: "Garage Sale (archived)", active: false, sortOrder: 5, updatedAt: new Date("2026-08-02").getTime(),
+        id: uid(), title: "Garage Sale (archived)", active: false, sortOrder: 5, updatedAt: new Date("2026-08-02").getTime(), isSample: true,
         body: "# Garage Sale\n\nCleared $340. Leftover items dropped at Goodwill on the 3rd. Sign back in the shed.\n"
       },
       {
-        id: uid(), title: "Old Apartment Move-out", active: false, sortOrder: 6, updatedAt: new Date("2026-06-14").getTime(),
+        id: uid(), title: "Old Apartment Move-out", active: false, sortOrder: 6, updatedAt: new Date("2026-06-14").getTime(), isSample: true,
         body: "# Move-out\n\nDeposit refunded in full, $1,800. Closed out utilities on the 20th.\n"
       }
     ];
@@ -431,7 +434,11 @@
     });
 
     const title = (project.title && project.title.trim()) || derivedTitle || "Untitled";
-    let preview = previewParts.join(" ");
+    // Joined with a real line break (rendered via .project-preview's
+    // white-space: pre-line) rather than a space, so separate lines in the
+    // source -- e.g. two bullet points -- don't collapse into one run-on
+    // line that reads differently from the editor's own Preview tab.
+    let preview = previewParts.join("\n");
     // If the note has no other prose (everything else was a task/follow-up,
     // or nothing at all), fall back to the swallowed heading -- unless it's
     // just a duplicate of the title, where an empty preview reads better
@@ -648,6 +655,7 @@
     lines[lineIdx] = line.replace(TASK_RE, `- [${nowDone ? "x" : " "}] $2`);
     project.body = lines.join("\n");
     project.updatedAt = Date.now();
+    delete project.isSample; // a real interaction -- see the editor Save handler for the same rule
     saveProjects(projects);
     render();
   }
@@ -731,6 +739,9 @@
         project.active = active;
         project.body = body;
         project.updatedAt = Date.now();
+        // A sample project the user has actually opened and saved is real
+        // data now -- from here on it backs up to Dropbox like any other.
+        delete project.isSample;
       }
     } else {
       projects.push({ id: uid(), title, sortOrder, active, body, updatedAt: Date.now() });
@@ -742,9 +753,21 @@
 
   deleteProjectBtn.addEventListener("click", () => {
     if (!editingId) return;
-    if (!confirm("Delete this project? This only removes it from this browser -- any Dropbox backup is untouched.")) return;
+    const project = projects.find((p) => p.id === editingId);
+    const confirmMessage = dbx
+      ? "Delete this project? This also deletes its file from Dropbox."
+      : "Delete this project? It isn't backed up to Dropbox (not connected), so this only removes it from this browser.";
+    if (!confirm(confirmMessage)) return;
     projects = projects.filter((p) => p.id !== editingId);
     saveProjects(projects);
+    // A sample project was never backed up in the first place; nothing to
+    // delete there. A "not found" failure here (project never actually
+    // synced yet) isn't a real problem -- only surface an auth failure.
+    if (dbx && project && !project.isSample) {
+      dbx.filesDeleteV2({ path: dropboxPath(project) }).catch((err) => {
+        if (!handleDropboxAuthError(err)) console.error("Dropbox delete failed:", err);
+      });
+    }
     closeEditor();
     render();
   });
@@ -976,17 +999,26 @@
   function performDropboxBackup(isAuto) {
     if (!dbx) { if (!isAuto) dropboxLogin(); return; }
     if (dbxAutoBackupTimer) { clearTimeout(dbxAutoBackupTimer); dbxAutoBackupTimer = null; }
-    if (!projects.length) { setDropboxUi("connected"); return; }
+    // Sample/onboarding placeholders never leave the browser -- only a
+    // project a user has actually touched (or one pulled in from Dropbox)
+    // is real data worth backing up. See seedProjects() and the discovery
+    // import handler, which clears any samples still untouched once real
+    // Dropbox data shows up.
+    const toBackUp = projects.filter((p) => !p.isSample);
+    if (!toBackUp.length) { setDropboxUi("connected"); return; }
     setDropboxUi("syncing");
-    Promise.all(projects.map((project) =>
+    Promise.allSettled(toBackUp.map((project) =>
       dbx.filesUpload({ path: dropboxPath(project), contents: serializeProjectMarkdown(project), mode: { ".tag": "overwrite" } })
-    ))
-      .then(() => setDropboxUi("connected"))
-      .catch((err) => {
-        if (handleDropboxAuthError(err)) return;
-        setDropboxUi("error", "Dropbox backup failed");
-        console.error("Dropbox backup failed:", err);
-      });
+        .catch((err) => { throw { project: project.title, err }; })
+    )).then((results) => {
+      const failures = results.filter((r) => r.status === "rejected");
+      if (!failures.length) { setDropboxUi("connected"); return; }
+      // A single 401 covers every failure in this batch -- handle it once
+      // rather than once per failed upload.
+      if (failures.some((f) => handleDropboxAuthError(f.reason && f.reason.err))) return;
+      failures.forEach((f) => console.error(`Dropbox backup failed for "${f.reason.project}":`, f.reason.err));
+      setDropboxUi("error", failures.length === toBackUp.length ? "Dropbox backup failed" : `Dropbox backup failed for ${failures.length} of ${toBackUp.length} projects`);
+    });
   }
 
   function closeDiscoveryModal() {
@@ -1023,6 +1055,7 @@
         p.sortOrder = c.sortOrder;
         p.body = c.body;
         p.updatedAt = Date.now();
+        delete p.isSample;
       } else {
         projects.push({
           id: uid(),
@@ -1034,6 +1067,11 @@
         });
       }
     });
+    // Real data just arrived from Dropbox -- the onboarding placeholders
+    // have done their job. Only drop ones still untouched (isSample was
+    // cleared the moment a user actually opened and saved one), so nothing
+    // a user made real gets removed.
+    projects = projects.filter((p) => !p.isSample);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
     render();
   });

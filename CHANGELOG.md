@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.6.0] - 2026-09-14
+
+### Fixed
+- Onboarding sample projects (Kitchen Remodel, etc., seeded into a fresh
+  browser with no existing data) were being backed up to Dropbox like real
+  projects. Every fresh/private-browsing session re-seeded them, so they
+  kept reappearing in Dropbox alongside real data. Sample projects are now
+  tagged and skipped by every backup; editing one (or importing real data
+  from Dropbox) makes it real going forward, and importing real data from
+  Dropbox auto-clears whatever samples were still untouched, so there's
+  nothing to manually purge.
+- Dashboard note previews joined separate body lines (e.g. two bullet
+  points) with a space instead of a line break, so a preview like "Note 1
+  Note 2" read as one run-on line instead of matching how the same content
+  looks in the editor's own Preview tab.
+- `performDropboxBackup()` used `Promise.all()`, so a single failed upload
+  (rate limiting, a transient network error) marked the *entire* batch as
+  failed even though every other project's upload had already succeeded.
+  Switched to `Promise.allSettled()`: a partial failure is now reported
+  as exactly that (e.g. "failed for 1 of 6 projects") and named in the
+  console, instead of one bad upload masking a mostly-successful backup.
+
+### Added
+- Deleting a project now also deletes its file from Dropbox, when
+  connected (previously it only ever removed the local copy, silently
+  leaving an orphaned file behind).
+
 ## [0.5.1] - 2026-09-14
 
 ### Fixed
