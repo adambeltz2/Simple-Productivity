@@ -20,14 +20,16 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
 - `[FEATURE]` CSV/JSON export-import of all projects, as a portable
   interchange format independent of Dropbox (matches Simple Gantt's CSV
   round-trip). _Affected: `index.html`._
-- `[DEBT]` Renaming a project's title changes which Dropbox file it backs
-  up to next (the filename is derived from the title, with no stored id
-  linking a project to its file — a deliberate simplicity tradeoff, see
-  `CLAUDE.md` §5). The file under the old name is left behind in
-  `/Notebook Projects/` rather than renamed or deleted. Fixing this well
-  would mean either reintroducing a stored id (rejected on purpose for
-  now) or detecting/renaming the old file on the next backup after a
-  title change. _Affected: `index.html`._
+- `[DEBT]` A file renamed directly in Dropbox (not through the app) isn't
+  matched back to its project: discovery only ever matches a file to a
+  known project by filename, and a renamed file's new name won't match, so
+  it's offered as a brand-new project — confirming the import creates a
+  duplicate rather than updating the existing one. (Renaming a project's
+  *title* through the app is handled correctly: `performDropboxBackup()`
+  tracks the actual last-synced filename per project and cleans up the
+  stale file on the next backup after a title change — this item is only
+  about an out-of-band rename done in Dropbox itself.) _Affected:
+  `index.html`._
 - `[DEBT]` No merge across devices: each Dropbox backup overwrites that
   project's file in place, so a device pushing a backup always wins outright
   over what's already there — no version history to fall back on, and two

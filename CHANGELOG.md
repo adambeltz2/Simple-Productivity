@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.7.0] - 2026-09-14
+
+### Added
+- Visible sync status: the Dropbox dot now pulses while a backup is
+  actually in flight (distinct from the existing static amber "pending"
+  state while waiting out the debounce), and the status text shows "synced
+  Xm ago" once idle, tracking a new persisted last-synced timestamp.
+- Renaming a project's title now renames its Dropbox file too:
+  `performDropboxBackup()` tracks the exact filename each project last
+  synced to and deletes the stale file after uploading under the new name,
+  instead of leaving it behind. This also resolves importing a
+  generically-named file (e.g. a `test.md` dropped straight into Dropbox)
+  — give it a real title and save, and its file becomes
+  `the-real-title.md`; `test.md` doesn't linger.
+
 ## [0.6.0] - 2026-09-14
 
 ### Fixed

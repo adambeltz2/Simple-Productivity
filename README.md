@@ -98,10 +98,15 @@ from it without an explicit confirmation.
 **Layout in Dropbox:** `/Notebook Projects/<slugified-title>.md` — one flat
 folder, one file per project, overwritten in place on every backup. No
 subfolders, no internal ids: browsing that folder looks like nothing more
-than a folder of markdown files. The tradeoff is that a project's filename
-is derived from its title, so **renaming a project's title changes which
-file it backs up to next** — the file under the old name is left behind
-rather than renamed (see `BACKLOG.md`).
+than a folder of markdown files. A project's filename is derived from its
+title, so **renaming a project's title renames its Dropbox file too** —
+the next backup uploads under the new name and deletes the stale file
+under the old one. This is also how an imported file with a generic name
+(say you drop a `test.md` straight into the Dropbox folder) sorts itself
+out: import it, give it a real title, save, and its file becomes
+`the-real-title.md` — `test.md` doesn't linger. (This only applies to
+renames made through the app's Title field; a file renamed directly in
+Dropbox isn't matched back to its project — see `BACKLOG.md`.)
 
 **On connect** (and on reconnecting after a session expires), two things
 happen right away: every real project is pushed to Dropbox, and Notebook
@@ -118,8 +123,12 @@ show up here: edit the project's `.md` file in Dropbox, then click "Check
 Dropbox" (or just reconnect) and confirm it in the checklist that appears.
 
 **After an edit**, a backup is pushed automatically ~60 seconds after you
-stop editing (not on every keystroke) — the status text next to the
-Dropbox button shows "backup pending" / "backing up…" / connected.
+stop editing (not on every keystroke). The dot next to the Dropbox button
+and the status text both track exactly what's happening: an idle amber dot
++ "backup pending" while waiting out the debounce, a pulsing amber dot +
+"syncing…" while the upload is actually in flight, and a green dot +
+"synced Xm ago" once it settles — so it's never ambiguous whether a change
+has actually made it to Dropbox yet.
 
 **Sample projects never touch Dropbox.** The handful of onboarding notes
 Notebook seeds into a brand-new browser (Kitchen Remodel, and the rest) are
