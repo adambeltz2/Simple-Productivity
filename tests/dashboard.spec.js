@@ -113,15 +113,14 @@ test('footer shows a version number and opens GitHub / Buy Me a Coffee in new ta
 // clobber it, once wherever this runs can actually reach the real CDN) and
 // installs a fake Dropbox.Dropbox client backed by an in-memory virtual
 // filesystem (window.__dbxFiles: flat list of {path_lower, name,
-// client_modified, contents}), so filesListFolder resolves real
-// parent/child relationships the way Dropbox actually does -- folders are
-// inferred from file paths, not stored separately. Seed window.__dbxFiles
-// with pre-existing project files (frontmatter + body, matching
-// serializeProjectMarkdown() in index.html) before navigating; an
-// empty/nonexistent folder correctly rejects with path/not_found, matching
-// real Dropbox. Each of these tests does its own single, explicit
-// goto() with the #access_token hash already in the URL -- see the note
-// at the top of this file on why that must be the only navigation.
+// client_modified, contents}) representing the one flat DROPBOX_FOLDER --
+// no per-project subfolders. Seed window.__dbxFiles with pre-existing
+// project files (frontmatter + body, matching serializeProjectMarkdown()
+// in index.html) before navigating; an empty/nonexistent folder correctly
+// rejects with path/not_found, matching real Dropbox. Each of these tests
+// does its own single, explicit goto() with the #access_token hash already
+// in the URL -- see the note at the top of this file on why that must be
+// the only navigation.
 
 async function stubDropboxSdk(page) {
   await page.route('https://cdn.jsdelivr.net/npm/dropbox**', (route) => route.abort());
@@ -154,8 +153,13 @@ async function stubDropboxSdk(page) {
       Dropbox: function DropboxStub() {
         this.filesUpload = (args) => {
           window.__uploads.push(args);
+          const pathLower = args.path.toLowerCase();
+          // mode: 'overwrite' replaces the file at this exact path in place,
+          // matching real Dropbox -- without this, repeated backups to the
+          // same stable filename would pile up as duplicate entries here.
+          window.__dbxFiles = window.__dbxFiles.filter((f) => f.path_lower !== pathLower);
           window.__dbxFiles.push({
-            path_lower: args.path.toLowerCase(),
+            path_lower: pathLower,
             name: args.path.split('/').pop(),
             client_modified: new Date().toISOString(),
             contents: args.contents,
@@ -183,7 +187,7 @@ async function stubDropboxSdk(page) {
   });
 }
 
-test('connecting pushes every local project to Dropbox as its own file, each in its own folder', async ({ page }) => {
+test('connecting pushes every local project to Dropbox as its own flat file, named from its title', async ({ page }) => {
   await stubDropboxSdk(page);
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
@@ -192,17 +196,36 @@ test('connecting pushes every local project to Dropbox as its own file, each in 
   // 6 seeded sample projects (4 active + 2 inactive) -- every one backs up, not just active ones.
   await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
   const paths = await page.evaluate(() => window.__uploads.map((u) => u.path));
-  const folders = new Set(paths.map((p) => p.replace(/\/[^/]+\.md$/, '')));
-  expect(folders.size).toBe(6); // each project got its own folder
-  expect(paths.every((p) => /^\/Notebook Projects\/.+\/.+\.md$/.test(p))).toBe(true);
+  expect(new Set(paths).size).toBe(6); // each project got its own distinct file
+  expect(paths.every((p) => /^\/Notebook Projects\/[^/]+\.md$/.test(p))).toBe(true); // flat -- no subfolders
+  expect(paths).toContain('/Notebook Projects/kitchen-remodel.md');
+});
+
+test('re-backing up a renamed project leaves the old file behind under its previous name', async ({ page }) => {
+  // This is the documented tradeoff of matching by filename instead of a
+  // stored id -- see BACKLOG.md.
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(true);
+
+  await page.click('.project-card >> nth=0'); // Kitchen Remodel, numbered 1
+  await page.fill('#editTitle', 'Kitchen Remodel 2.0');
+  await page.click('#saveProjectBtn');
+  await page.evaluate(() => window.__notebook.performDropboxBackup(true));
+
+  await expect.poll(() => page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel-2-0.md'))).toBe(true);
+  // The old file is still there, untouched -- not renamed, not deleted.
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(true);
 });
 
 test('a project only in Dropbox is offered via the discovery modal, and Not Now leaves it unimported', async ({ page }) => {
   await stubDropboxSdk(page);
   await page.addInitScript(() => {
     window.__dbxFiles = [{
-      path_lower: '/notebook projects/remote-proj-1/2026-01-01_120000.md',
-      name: '2026-01-01_120000.md',
+      path_lower: '/notebook projects/remote-only-project.md',
+      name: 'remote-only-project.md',
       client_modified: '2026-01-01T12:00:00Z',
       contents: '---\ntitle: "Remote Only Project"\nactive: true\nsortOrder: 1\n---\n# Remote Only Project\n',
     }];
@@ -222,8 +245,8 @@ test('importing a discovered project adds it locally, and it is not offered agai
   await stubDropboxSdk(page);
   await page.addInitScript(() => {
     window.__dbxFiles = [{
-      path_lower: '/notebook projects/remote-proj-1/2026-01-01_120000.md',
-      name: '2026-01-01_120000.md',
+      path_lower: '/notebook projects/remote-only-project.md',
+      name: 'remote-only-project.md',
       client_modified: '2026-01-01T12:00:00Z',
       contents: '---\ntitle: "Remote Only Project"\nactive: true\nsortOrder: 1\n---\n# Remote Only Project\n',
     }];
@@ -236,68 +259,11 @@ test('importing a discovered project adds it locally, and it is not offered agai
   await expect(page.locator('.project-card', { hasText: 'Remote Only Project' })).toBeVisible();
   await expect(page.locator('#activeCount')).toHaveText('5 active');
 
-  // Re-checking manually should find nothing new now that it's known locally.
+  // Re-checking manually should find nothing new now that it's known locally
+  // (its file was also just re-uploaded via saveProjects()'s auto-backup).
   page.once('dialog', (dialog) => dialog.accept());
   await page.click('#dbxCheckBtn');
   await expect(page.locator('#dropboxDiscoveryBackdrop')).not.toHaveClass(/active/);
-});
-
-test('a project\'s Dropbox history is scoped to that project, and restoring one replaces only it', async ({ page }) => {
-  await stubDropboxSdk(page);
-
-  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
-  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6); // initial connect push
-
-  // Open the first project (uploaded first during the connect push, in the
-  // same order as `projects`) and seed an older snapshot directly into its
-  // now-known folder (ensureDropboxProjectId ran during the connect push).
-  await page.click('.project-card >> nth=0');
-  const dropboxProjectId = await page.evaluate(() => window.__uploads[0].path.split('/')[2]);
-  await page.evaluate((folderId) => {
-    window.__dbxFiles.push({
-      path_lower: `/notebook projects/${folderId}/2020-01-01_000000.md`.toLowerCase(),
-      name: '2020-01-01_000000.md',
-      client_modified: '2020-01-01T00:00:00Z',
-      contents: '---\ntitle: "Old Version Of This Project"\nactive: true\nsortOrder: 1\n---\nOld body text.\n',
-    });
-  }, dropboxProjectId);
-
-  await page.click('#editHistoryBtn');
-  await expect(page.locator('#dropboxVersionsBackdrop')).toHaveClass(/active/);
-  await expect(page.locator('#dropboxVersionsList .rail-item')).toHaveCount(2); // the initial connect push + the seeded older one
-
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#dropboxVersionsList .rail-item', { hasText: '1/1/2020' }).getByRole('button', { name: 'Restore' }).click();
-
-  await expect(page.locator('.project-card', { hasText: 'Old Version Of This Project' })).toBeVisible();
-  await expect(page.locator('#activeCount')).toHaveText('4 active'); // unchanged -- no project was added or removed
-});
-
-test('old backups beyond the kept limit are pruned per project after a new one is pushed', async ({ page }) => {
-  await stubDropboxSdk(page);
-
-  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
-  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
-
-  const dropboxProjectId = await page.evaluate(() => window.__uploads[0].path.split('/')[2]);
-  await page.evaluate((folderId) => {
-    for (let i = 0; i < 25; i++) {
-      window.__dbxFiles.push({
-        path_lower: `/notebook projects/${folderId}/seed-${i}.md`.toLowerCase(),
-        name: `seed-${i}.md`,
-        client_modified: new Date(2020, 0, i + 1).toISOString(),
-        contents: '---\ntitle: "x"\nactive: true\nsortOrder: 1\n---\n',
-      });
-    }
-  }, dropboxProjectId);
-  // 26 snapshots now exist for this one project (1 from connecting + 25 seeded), one over MAX_BACKUPS.
-
-  await page.evaluate(() => window.__notebook.performDropboxBackup(true));
-
-  await page.waitForFunction((folderId) => {
-    const count = window.__dbxFiles.filter((f) => f.path_lower.startsWith(`/notebook projects/${folderId.toLowerCase()}/`)).length;
-    return count === 25;
-  }, dropboxProjectId);
 });
 
 test('edits are debounced before backing up, not pushed on every change', async ({ page }) => {

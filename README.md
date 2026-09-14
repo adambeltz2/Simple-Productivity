@@ -95,23 +95,22 @@ secret on, so the OAuth2 implicit grant is used instead) is set as
 authoritative; Dropbox is only ever a copy, and nothing is ever pulled in
 from it without an explicit confirmation.
 
-**Layout in Dropbox:** `/Notebook Projects/<id>/<timestamp>.md`, one folder
-per project (`<id>` is an internal id, stable even if you rename the
-project), one timestamped snapshot file per backup. Notebook keeps each
-project's most recent 25 backups and prunes older ones automatically.
+**Layout in Dropbox:** `/Notebook Projects/<slugified-title>.md` — one flat
+folder, one file per project, overwritten in place on every backup. No
+subfolders, no internal ids: browsing that folder looks like nothing more
+than a folder of markdown files. The tradeoff is that a project's filename
+is derived from its title, so **renaming a project's title changes which
+file it backs up to next** — the file under the old name is left behind
+rather than renamed (see `BACKLOG.md`).
 
 **On connect** (and on reconnecting after a session expires), two things
 happen right away: every local project is pushed to Dropbox, and Notebook
-checks for any project that exists in Dropbox but isn't known to this
-browser yet (added directly in Dropbox, or synced from another device) —
-those are offered via a checklist, never imported silently.
+checks for any `.md` file in that folder that isn't known to this browser
+yet (added directly in Dropbox, or synced from another device) — those are
+offered via a checklist, never imported silently.
 
 **"Check Dropbox"** (topbar, once connected) re-runs that same check any
 time, e.g. after adding a project's `.md` file directly in Dropbox.
-
-**"Dropbox history"** (inside a project's editor) lists that one project's
-kept snapshots and lets you restore any of them back into it — restoring
-only ever touches that single project.
 
 **After an edit**, a backup is pushed automatically ~60 seconds after you
 stop editing (not on every keystroke) — the status text next to the

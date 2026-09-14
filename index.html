@@ -251,10 +251,7 @@
         <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
       </div>
       <div class="modal-actions">
-        <div style="display:flex; gap:10px;">
-          <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
-          <button class="btn subtle" id="editHistoryBtn" type="button" style="display:none;">Dropbox history</button>
-        </div>
+        <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
         <div class="right">
           <button class="btn" id="cancelEditBtn" type="button">Cancel</button>
           <button class="btn primary" id="saveProjectBtn" type="button">Save</button>
@@ -285,7 +282,7 @@
     </div>
   </div>
 
-  <!-- Discovery modal: projects that exist in Dropbox (their own file/folder each, per CLAUDE.md's one-file-per-project rule) but aren't known to this browser yet -- e.g. added directly in Dropbox, or synced from another device. Offered after a fresh connect and from "Check Dropbox" any time after; never imported without this confirmation. -->
+  <!-- Discovery modal: projects that exist in Dropbox as their own .md file (per CLAUDE.md's one-file-per-project rule) but aren't known to this browser yet -- e.g. added directly in Dropbox, or synced from another device. Offered after a fresh connect and from "Check Dropbox" any time after; never imported without this confirmation. -->
   <div class="modal-backdrop" id="dropboxDiscoveryBackdrop">
     <div class="modal" style="max-width:480px;">
       <h2>Projects found in Dropbox</h2>
@@ -294,19 +291,6 @@
       <div class="modal-actions">
         <button class="btn" id="dbxDiscoverySkip" type="button">Not now</button>
         <button class="btn primary" id="dbxDiscoveryImport" type="button">Import selected</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Per-project Dropbox history: opened from inside the note editor for the project currently being edited. Each project has its own folder in Dropbox, so this only ever lists/restores versions of THAT ONE project -- never anything else. -->
-  <div class="modal-backdrop" id="dropboxVersionsBackdrop">
-    <div class="modal" style="max-width:480px;">
-      <h2 id="dropboxVersionsHeading">Dropbox history</h2>
-      <p id="dropboxVersionsIntro" style="color:var(--ink-dim); font-size:0.85rem; margin-bottom:12px;"></p>
-      <div id="dropboxVersionsList" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
-      <div class="modal-actions">
-        <div></div>
-        <button class="btn" id="dbxVersionsClose" type="button">Close</button>
       </div>
     </div>
   </div>
@@ -326,7 +310,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.4.0";
+  const APP_VERSION = "0.5.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -711,7 +695,6 @@
       editActive.checked = !!project.active;
       editBody.value = project.body;
       deleteProjectBtn.style.display = "";
-      editHistoryBtn.style.display = dbx ? "" : "none";
     } else {
       editorHeading.textContent = "New project";
       editTitle.value = "";
@@ -719,7 +702,6 @@
       editActive.checked = true;
       editBody.value = "# \n\n";
       deleteProjectBtn.style.display = "none";
-      editHistoryBtn.style.display = "none";
     }
     setEditorTab("write");
     editorBackdrop.classList.add("active");
@@ -790,14 +772,11 @@
   // ======================================================================
 
   const DROPBOX_APP_KEY = "vfcwmj0eu2kdiud";
-  // One folder per project (per CLAUDE.md's "every project is its own file"
-  // rule), named by that project's durable dropboxProjectId -- never its
-  // local id or title, both of which can change. Within a project's
-  // folder, each backup is its own timestamped .md snapshot (frontmatter +
-  // body, never overwritten), pruned to the MAX_BACKUPS most recent --
-  // this is exactly Simple Gantt's per-project-folder model.
-  const DROPBOX_ROOT = "/Notebook Projects";
-  const MAX_BACKUPS = 25;
+  // One flat folder, one .md file per project -- no per-project subfolders,
+  // no internal ids in the Dropbox layout. Deliberately simple: browsing
+  // /Notebook Projects/ in Dropbox (or on disk after a Dropbox sync) looks
+  // exactly like the note format itself, nothing more. See CLAUDE.md #5.
+  const DROPBOX_FOLDER = "/Notebook Projects";
   // Matches Simple Gantt's AUTO_BACKUP_DELAY_MS exactly -- same debounce,
   // same reasoning: edits commit to localStorage synchronously regardless
   // of Dropbox, so there's no data-loss risk in waiting this long before
@@ -806,7 +785,6 @@
 
   let dbxAutoBackupTimer = null;
   let discoveredCandidates = [];
-  let historyModalProjectId = null;
 
   const dbxBtn = document.getElementById("dbxBtn");
   const dbxCheckBtn = document.getElementById("dbxCheckBtn");
@@ -816,31 +794,23 @@
   const dropboxInfoBackdrop = document.getElementById("dropboxInfoBackdrop");
   const dropboxDiscoveryBackdrop = document.getElementById("dropboxDiscoveryBackdrop");
   const dropboxDiscoveryList = document.getElementById("dropboxDiscoveryList");
-  const dropboxVersionsBackdrop = document.getElementById("dropboxVersionsBackdrop");
-  const dropboxVersionsList = document.getElementById("dropboxVersionsList");
-  const editHistoryBtn = document.getElementById("editHistoryBtn");
 
-  function timestampForFilename() {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  // A project's filename is derived straight from its title -- no stored
+  // id, no folder. That means renaming a project's title changes which
+  // Dropbox file it backs up to next; the old file under the previous name
+  // is left behind rather than renamed (see BACKLOG.md). Traded
+  // deliberately for a flat, plain-markdown-files layout with nothing to
+  // track behind the scenes.
+  function slugify(text) {
+    return (text || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "untitled";
   }
 
-  // Assigns a durable id the first time a project syncs to Dropbox, so its
-  // folder name never changes even if the project is renamed or its local
-  // id is regenerated. Persisted directly (not via saveProjects(), which
-  // would re-trigger scheduleAutoBackup() from inside a backup already in
-  // progress).
-  function ensureDropboxProjectId(project) {
-    if (!project.dropboxProjectId) {
-      project.dropboxProjectId = uid();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-    }
-    return project.dropboxProjectId;
+  function dropboxFileName(project) {
+    return `${slugify(project.title)}.md`;
   }
 
-  function getDropboxFolder(project) {
-    return `${DROPBOX_ROOT}/${ensureDropboxProjectId(project)}`;
+  function dropboxPath(project) {
+    return `${DROPBOX_FOLDER}/${dropboxFileName(project)}`;
   }
 
   // A project's Dropbox file: frontmatter (title/active/sortOrder) + the
@@ -885,33 +855,13 @@
     return dbx.filesListFolder({ path }).then((res) => collectFrom(res, []));
   }
 
-  function listProjectSnapshots(dropboxProjectId) {
-    return listAllDropboxEntries(`${DROPBOX_ROOT}/${dropboxProjectId}`).then((entries) =>
-      entries
-        .filter((e) => e[".tag"] === "file" && e.name.toLowerCase().endsWith(".md"))
-        .sort((a, b) => new Date(b.client_modified) - new Date(a.client_modified))
-    );
-  }
-
-  function downloadSnapshot(pathLower) {
+  function downloadProjectFile(pathLower) {
     return dbx.filesDownload({ path: pathLower }).then((res) => new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => { try { resolve(parseProjectMarkdown(reader.result)); } catch (err) { reject(err); } };
       reader.onerror = () => reject(reader.error);
       reader.readAsText(res.result.fileBlob);
     }));
-  }
-
-  function pruneProjectSnapshots(dropboxProjectId) {
-    if (!dbx) return;
-    listProjectSnapshots(dropboxProjectId)
-      .then((files) => {
-        if (files.length <= MAX_BACKUPS) return;
-        files.slice(MAX_BACKUPS).forEach((f) => {
-          dbx.filesDeleteV2({ path: f.path_lower }).catch((err) => console.error("Dropbox prune failed:", err));
-        });
-      })
-      .catch((err) => console.error("Dropbox prune list failed:", err));
   }
 
   function setDropboxUi(state, detail) {
@@ -960,12 +910,11 @@
       // on every reload. Two independent things happen, both immediately
       // (not debounced -- connecting is a deliberate, one-time moment,
       // unlike an edit): push this browser's projects to Dropbox (each
-      // still gets its own file/folder; nothing here is a merge), and
-      // separately check for projects that exist in Dropbox but aren't
-      // known here yet, which are only ever *offered* via the discovery
-      // modal -- never imported without that confirmation, matching Simple
-      // Gantt's "no automatic merge/reconciliation" principle. See
-      // CLAUDE.md #5.
+      // still gets its own file; nothing here is a merge), and separately
+      // check for projects that exist in Dropbox but aren't known here
+      // yet, which are only ever *offered* via the discovery modal --
+      // never imported without that confirmation, matching Simple Gantt's
+      // "no automatic merge/reconciliation" principle. See CLAUDE.md #5.
       if (justAuthenticated) {
         performDropboxBackup(true);
         discoverDropboxProjects(false);
@@ -1020,20 +969,18 @@
   // isAuto=true (fired from the debounce timer, or the initial backup when
   // nothing existed in Dropbox yet) never opens the login flow as a side
   // effect; isAuto=false (a direct user click) does. Backs up every
-  // project as its own snapshot in its own folder -- never one combined
-  // file -- per CLAUDE.md's one-file-per-project rule.
+  // project as its own file -- never one combined file -- overwriting it
+  // in place each time (per CLAUDE.md's one-file-per-project rule; see
+  // BACKLOG.md for the per-project-dirty-flag optimization this could use
+  // once the project count grows).
   function performDropboxBackup(isAuto) {
     if (!dbx) { if (!isAuto) dropboxLogin(); return; }
     if (dbxAutoBackupTimer) { clearTimeout(dbxAutoBackupTimer); dbxAutoBackupTimer = null; }
     if (!projects.length) { setDropboxUi("connected"); return; }
     setDropboxUi("syncing");
-    const stamp = timestampForFilename();
-    Promise.all(projects.map((project) => {
-      const folder = getDropboxFolder(project);
-      const filepath = `${folder}/${stamp}.md`;
-      return dbx.filesUpload({ path: filepath, contents: serializeProjectMarkdown(project), mode: { ".tag": "add" }, autorename: true })
-        .then(() => pruneProjectSnapshots(project.dropboxProjectId));
-    }))
+    Promise.all(projects.map((project) =>
+      dbx.filesUpload({ path: dropboxPath(project), contents: serializeProjectMarkdown(project), mode: { ".tag": "overwrite" } })
+    ))
       .then(() => setDropboxUi("connected"))
       .catch((err) => {
         if (handleDropboxAuthError(err)) return;
@@ -1068,7 +1015,6 @@
     checked.forEach((c, i) => {
       projects.push({
         id: uid(),
-        dropboxProjectId: c.dropboxProjectId,
         title: c.title,
         active: c.active,
         sortOrder: baseSortOrder + i + 1,
@@ -1080,35 +1026,29 @@
     render();
   });
 
-  // Lists every top-level folder under DROPBOX_ROOT (one per project) and
-  // offers to import whichever ones this browser doesn't already know --
-  // i.e. a project added directly in Dropbox, or synced from another
-  // device. Run automatically right after a fresh (re)authenticate, and
-  // manually any time via the "Check Dropbox" button (manualTrigger=true,
-  // which also opens the login flow if not connected, and alerts when
-  // nothing new is found). Never imports without the discovery modal's
+  // Lists every .md file in DROPBOX_FOLDER and offers to import whichever
+  // ones this browser doesn't already know -- i.e. a project added
+  // directly in Dropbox, or synced from another device (matched by
+  // filename; see dropboxFileName() above for the tradeoff that implies).
+  // Run automatically right after a fresh (re)authenticate, and manually
+  // any time via the "Check Dropbox" button (manualTrigger=true, which
+  // also opens the login flow if not connected, and alerts when nothing
+  // new is found). Never imports without the discovery modal's
   // confirmation.
   function discoverDropboxProjects(manualTrigger) {
     if (!dbx) { if (manualTrigger) dropboxLogin(); return; }
-    listAllDropboxEntries(DROPBOX_ROOT)
+    listAllDropboxEntries(DROPBOX_FOLDER)
       .then((allEntries) => {
-        const folders = allEntries.filter((e) => e[".tag"] === "folder");
-        const knownIds = new Set(projects.map((p) => p.dropboxProjectId).filter(Boolean));
-        const candidateFolders = folders.filter((f) => !knownIds.has(f.name));
+        const files = allEntries.filter((e) => e[".tag"] === "file" && e.name.toLowerCase().endsWith(".md"));
+        const knownNames = new Set(projects.map((p) => dropboxFileName(p)));
+        const candidates = files.filter((f) => !knownNames.has(f.name));
 
-        if (!candidateFolders.length) {
+        if (!candidates.length) {
           if (manualTrigger) alert("No additional Dropbox projects found beyond what's already in this browser.");
           return;
         }
 
-        Promise.all(candidateFolders.map((f) =>
-          listProjectSnapshots(f.name).then((files) => {
-            if (!files.length) return null;
-            return downloadSnapshot(files[0].path_lower).then((parsed) => ({ ...parsed, dropboxProjectId: f.name }));
-          })
-        )).then((results) => {
-          const found = results.filter(Boolean);
-          if (!found.length) { if (manualTrigger) alert("No additional Dropbox projects found beyond what's already in this browser."); return; }
+        Promise.all(candidates.map((f) => downloadProjectFile(f.path_lower))).then((found) => {
           openDiscoveryModal(found);
         });
       })
@@ -1122,64 +1062,6 @@
         }
       });
   }
-
-  // Per-project history, opened from inside the note editor. Only ever
-  // lists/restores snapshots from THIS ONE project's folder.
-  function renderProjectVersionsList(project, files) {
-    if (!files.length) {
-      dropboxVersionsList.innerHTML = '<div class="rail-empty">No Dropbox backups yet for this project.</div>';
-      return;
-    }
-    dropboxVersionsList.innerHTML = files.map((f) => `
-      <div class="rail-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span class="mono" style="font-size:0.78rem;">${escapeHtml(new Date(f.client_modified).toLocaleString())}</span>
-        <button type="button" class="btn subtle" data-path="${escapeHtml(f.path_lower)}" style="padding:4px 10px;">Restore</button>
-      </div>`).join("");
-    dropboxVersionsList.querySelectorAll("button[data-path]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!confirm("Restore this version? It replaces this project's current title, status, and note.")) return;
-        downloadSnapshot(btn.dataset.path)
-          .then((parsed) => {
-            const p = projects.find((x) => x.id === project.id);
-            if (!p) return;
-            p.title = parsed.title;
-            p.active = parsed.active;
-            p.sortOrder = parsed.sortOrder;
-            p.body = parsed.body;
-            p.updatedAt = Date.now();
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-            dropboxVersionsBackdrop.classList.remove("active");
-            closeEditor();
-            render();
-          })
-          .catch((err) => { console.error("Dropbox version download failed:", err); alert("Couldn't load that version."); });
-      });
-    });
-  }
-
-  function openProjectHistoryModal(project) {
-    if (!dbx) { dropboxLogin(); return; }
-    historyModalProjectId = project.id;
-    document.getElementById("dropboxVersionsHeading").textContent = `Dropbox history — ${project.title || "Untitled"}`;
-    document.getElementById("dropboxVersionsIntro").textContent = `Notebook keeps this project's most recent ${MAX_BACKUPS} backups.`;
-    dropboxVersionsList.innerHTML = '<div class="rail-empty">Loading…</div>';
-    dropboxVersionsBackdrop.classList.add("active");
-    const dropboxProjectId = ensureDropboxProjectId(project);
-    listProjectSnapshots(dropboxProjectId)
-      .then((files) => renderProjectVersionsList(project, files))
-      .catch((err) => {
-        if (handleDropboxAuthError(err)) { dropboxVersionsBackdrop.classList.remove("active"); return; }
-        dropboxVersionsList.innerHTML = '<div class="rail-empty">Couldn\'t load backups.</div>';
-        console.error("Dropbox versions list failed:", err);
-      });
-  }
-
-  editHistoryBtn.addEventListener("click", () => {
-    const project = projects.find((p) => p.id === editingId);
-    if (project) openProjectHistoryModal(project);
-  });
-  document.getElementById("dbxVersionsClose").addEventListener("click", () => dropboxVersionsBackdrop.classList.remove("active"));
-  dropboxVersionsBackdrop.addEventListener("click", (e) => { if (e.target === dropboxVersionsBackdrop) dropboxVersionsBackdrop.classList.remove("active"); });
 
   dbxCheckBtn.addEventListener("click", () => discoverDropboxProjects(true));
 

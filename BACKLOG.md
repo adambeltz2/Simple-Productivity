@@ -20,11 +20,18 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
 - `[FEATURE]` CSV/JSON export-import of all projects, as a portable
   interchange format independent of Dropbox (matches Simple Gantt's CSV
   round-trip). _Affected: `index.html`._
-- `[DEBT]` No merge across devices: each Dropbox backup is a full
-  per-project snapshot (see README.md's Dropbox section), and restoring one
-  via "Dropbox history" always fully replaces that project's local state.
-  Versioned snapshots mean an overwrite is always recoverable, but two
-  devices editing the *same* project between backups still can't have their
+- `[DEBT]` Renaming a project's title changes which Dropbox file it backs
+  up to next (the filename is derived from the title, with no stored id
+  linking a project to its file — a deliberate simplicity tradeoff, see
+  `CLAUDE.md` §5). The file under the old name is left behind in
+  `/Notebook Projects/` rather than renamed or deleted. Fixing this well
+  would mean either reintroducing a stored id (rejected on purpose for
+  now) or detecting/renaming the old file on the next backup after a
+  title change. _Affected: `index.html`._
+- `[DEBT]` No merge across devices: each Dropbox backup overwrites that
+  project's file in place, so a device pushing a backup always wins outright
+  over what's already there — no version history to fall back on, and two
+  devices editing the *same* project between backups can't have their
   changes combined automatically. _Affected: `index.html`._
 - `[DEBT]` `performDropboxBackup()` re-uploads every local project on each
   auto-backup, even ones that haven't changed since the last one — fine at
