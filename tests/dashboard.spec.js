@@ -193,6 +193,10 @@ async function stubDropboxSdk(page) {
             client_modified: new Date().toISOString(),
             contents: args.contents,
           });
+          // window.__uploadDelayMs (set via addInitScript in a specific
+          // test) lets a test observe the in-flight "syncing" state, which
+          // a same-tick Promise.resolve() would otherwise never render.
+          if (window.__uploadDelayMs) return new Promise((resolve) => setTimeout(() => resolve({}), window.__uploadDelayMs));
           return Promise.resolve({});
         };
         this.filesListFolder = (args) => {
@@ -222,7 +226,7 @@ test('connecting pushes every local project to Dropbox as its own flat file, nam
 
   await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
 
-  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected');
+  await expect(page.locator('#dbxStatusText')).toHaveText(/^Dropbox connected/);
   // 6 real (non-sample) projects (4 active + 2 inactive) -- every one backs up, not just active ones.
   await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
   const paths = await page.evaluate(() => window.__uploads.map((u) => u.path));
@@ -231,9 +235,10 @@ test('connecting pushes every local project to Dropbox as its own flat file, nam
   expect(paths).toContain('/Notebook Projects/kitchen-remodel.md');
 });
 
-test('re-backing up a renamed project leaves the old file behind under its previous name', async ({ page }) => {
-  // This is the documented tradeoff of matching by filename instead of a
-  // stored id -- see BACKLOG.md.
+test('re-backing up a renamed project renames its Dropbox file, deleting the stale one', async ({ page }) => {
+  // performDropboxBackup() tracks each project's actual last-synced
+  // filename (project.dropboxFile) precisely so a title change can be
+  // followed by a real rename instead of leaving an orphan behind.
   await seedRealProjects(page);
   await stubDropboxSdk(page);
 
@@ -247,8 +252,38 @@ test('re-backing up a renamed project leaves the old file behind under its previ
   await page.evaluate(() => window.__notebook.performDropboxBackup(true));
 
   await expect.poll(() => page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel-2-0.md'))).toBe(true);
-  // The old file is still there, untouched -- not renamed, not deleted.
-  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(true);
+  // The stale file under the old name is cleaned up, not left behind.
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(false);
+});
+
+test('importing a generically-named file, then giving it a real title, renames it in Dropbox on save', async ({ page }) => {
+  // The literal "test.md" scenario: a file whose name doesn't reflect any
+  // meaningful title gets imported, then the user gives it a real title --
+  // that should rename the Dropbox file to match, not leave "test.md"
+  // sitting there forever.
+  await stubDropboxSdk(page);
+  await page.addInitScript(() => {
+    window.__dbxFiles = [{
+      path_lower: '/notebook projects/test.md',
+      name: 'test.md',
+      client_modified: '2026-01-01T12:00:00Z',
+      contents: '---\ntitle: "test"\nactive: true\nsortOrder: 1\n---\nSome imported content.\n',
+    }];
+  });
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
+  await page.click('#dbxDiscoveryImport');
+  await expect(page.locator('.project-card', { hasText: 'test' })).toBeVisible();
+
+  await page.click('.project-card >> nth=0');
+  await page.fill('#editTitle', 'Real Project Title');
+  await page.click('#saveProjectBtn');
+  await page.evaluate(() => window.__notebook.performDropboxBackup(true));
+
+  await expect.poll(() => page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/real-project-title.md'))).toBe(true);
+  // "test.md" is gone, not left behind under its old name.
+  expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/test.md'))).toBe(false);
 });
 
 test('a project only in Dropbox is offered via the discovery modal, and Not Now leaves it unimported', async ({ page }) => {
@@ -355,9 +390,33 @@ test('edits are debounced before backing up, not pushed on every change', async 
   expect(await page.evaluate(() => window.__uploads.length)).toBe(6);
 
   await page.clock.fastForward(60000);
-  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected');
+  await expect(page.locator('#dbxStatusText')).toHaveText(/^Dropbox connected/);
   // One more push of all 6 projects (performDropboxBackup backs up everything, not just the edited one).
   expect(await page.evaluate(() => window.__uploads.length)).toBe(12);
+});
+
+test('status text shows when Dropbox last synced', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected · synced just now');
+});
+
+test('the Dropbox dot pulses while a backup is in flight, and stops once it settles', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+  await page.addInitScript(() => { window.__uploadDelayMs = 500; });
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected · syncing…');
+  await expect(page.locator('#dbxDot')).toHaveClass(/syncing/);
+
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected · synced just now');
+  await expect(page.locator('#dbxDot')).not.toHaveClass(/syncing/);
+  await expect(page.locator('#dbxDot')).toHaveClass(/connected/);
 });
 
 test('onboarding sample projects are never backed up to Dropbox', async ({ page }) => {

@@ -81,6 +81,9 @@
   .dbx-dot.connected { background: var(--accent); }
   .dbx-dot.error { background: var(--danger); }
   .dbx-dot.pending { background: var(--task); }
+  .dbx-dot.syncing { background: var(--task); animation: dbx-pulse 1s ease-in-out infinite; }
+  @keyframes dbx-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(1.35); } }
+  @media (prefers-reduced-motion: reduce) { .dbx-dot.syncing { animation: none; } }
 
   .layout { display: grid; grid-template-columns: 1fr 220px 260px; gap: 22px; align-items: start; }
   @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
@@ -310,7 +313,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.6.0";
+  const APP_VERSION = "0.7.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -512,16 +515,21 @@
     return out;
   }
 
-  function formatUpdated(ts) {
+  function relativeTime(ts) {
     if (!ts) return "";
     const diffMs = Date.now() - ts;
     const hr = 3600e3, day = 86400e3;
-    if (diffMs < hr) return "updated just now";
-    if (diffMs < day) return `updated ${Math.round(diffMs / hr)}h ago`;
+    if (diffMs < hr) return "just now";
+    if (diffMs < day) return `${Math.round(diffMs / hr)}h ago`;
     const days = Math.round(diffMs / day);
-    if (days === 1) return "updated yesterday";
-    if (days < 14) return `updated ${days}d ago`;
-    return `updated ${new Date(ts).toLocaleDateString()}`;
+    if (days === 1) return "yesterday";
+    if (days < 14) return `${days}d ago`;
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function formatUpdated(ts) {
+    const rel = relativeTime(ts);
+    return rel ? `updated ${rel}` : "";
   }
 
   // ======================================================================
@@ -764,7 +772,10 @@
     // delete there. A "not found" failure here (project never actually
     // synced yet) isn't a real problem -- only surface an auth failure.
     if (dbx && project && !project.isSample) {
-      dbx.filesDeleteV2({ path: dropboxPath(project) }).catch((err) => {
+      // dropboxFile is the actual current on-disk name (set on every
+      // successful sync); dropboxPath() recomputes from the title as a
+      // fallback for a project that was never successfully backed up yet.
+      dbx.filesDeleteV2({ path: project.dropboxFile || dropboxPath(project) }).catch((err) => {
         if (!handleDropboxAuthError(err)) console.error("Dropbox delete failed:", err);
       });
     }
@@ -887,11 +898,14 @@
     }));
   }
 
+  const LAST_SYNCED_KEY = "dropbox_last_synced";
+
   function setDropboxUi(state, detail) {
-    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : (state === "pending" || state === "syncing") ? " pending" : "");
+    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : state === "pending" ? " pending" : state === "syncing" ? " syncing" : "");
     dbxCheckBtn.style.display = (state === "connected" || state === "pending" || state === "syncing") ? "" : "none";
+    const lastSynced = relativeTime(Number(localStorage.getItem(LAST_SYNCED_KEY)) || 0);
     if (state === "connected") {
-      dbxStatusText.textContent = "Dropbox connected";
+      dbxStatusText.textContent = "Dropbox connected" + (lastSynced ? ` · synced ${lastSynced}` : "");
       dbxBtn.textContent = "Disconnect";
       footerDbxNote.textContent = "Backed up to Dropbox — this browser stays the source of truth.";
     } else if (state === "pending") {
@@ -899,9 +913,9 @@
       dbxBtn.textContent = "Disconnect";
       footerDbxNote.textContent = "Changes are saved locally now; backing up to Dropbox shortly.";
     } else if (state === "syncing") {
-      dbxStatusText.textContent = "Dropbox connected · backing up…";
+      dbxStatusText.textContent = "Dropbox connected · syncing…";
       dbxBtn.textContent = "Disconnect";
-      footerDbxNote.textContent = "Backing up to Dropbox now.";
+      footerDbxNote.textContent = "Syncing to Dropbox now.";
     } else if (state === "error") {
       dbxStatusText.textContent = detail || "Dropbox session expired";
       dbxBtn.textContent = "Reconnect Dropbox";
@@ -1007,12 +1021,33 @@
     const toBackUp = projects.filter((p) => !p.isSample);
     if (!toBackUp.length) { setDropboxUi("connected"); return; }
     setDropboxUi("syncing");
-    Promise.allSettled(toBackUp.map((project) =>
-      dbx.filesUpload({ path: dropboxPath(project), contents: serializeProjectMarkdown(project), mode: { ".tag": "overwrite" } })
-        .catch((err) => { throw { project: project.title, err }; })
-    )).then((results) => {
+    Promise.allSettled(toBackUp.map((project) => {
+      const newPath = dropboxPath(project);
+      const oldPath = project.dropboxFile;
+      return dbx.filesUpload({ path: newPath, contents: serializeProjectMarkdown(project), mode: { ".tag": "overwrite" } })
+        .then(() => {
+          // The title changed since this project's last successful sync
+          // (or it was imported from a file whose name doesn't match its
+          // title, e.g. "test.md"), so the computed filename moved. Clean
+          // up the stale file under the old name instead of leaving it
+          // behind -- a real rename, not an orphan. A failure here doesn't
+          // fail the whole backup; the new file is already safely written.
+          if (oldPath && oldPath.toLowerCase() !== newPath.toLowerCase()) {
+            return dbx.filesDeleteV2({ path: oldPath }).catch((err) => {
+              console.error(`Dropbox rename cleanup failed for "${project.title}" (old file ${oldPath} left behind):`, err);
+            });
+          }
+        })
+        .then(() => { project.dropboxFile = newPath; })
+        .catch((err) => { throw { project: project.title, err }; });
+    })).then((results) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); // persist dropboxFile bookkeeping
       const failures = results.filter((r) => r.status === "rejected");
-      if (!failures.length) { setDropboxUi("connected"); return; }
+      if (!failures.length) {
+        localStorage.setItem(LAST_SYNCED_KEY, String(Date.now()));
+        setDropboxUi("connected");
+        return;
+      }
       // A single 401 covers every failure in this batch -- handle it once
       // rather than once per failed upload.
       if (failures.some((f) => handleDropboxAuthError(f.reason && f.reason.err))) return;
@@ -1055,6 +1090,7 @@
         p.sortOrder = c.sortOrder;
         p.body = c.body;
         p.updatedAt = Date.now();
+        p.dropboxFile = c.sourcePath;
         delete p.isSample;
       } else {
         projects.push({
@@ -1064,6 +1100,11 @@
           sortOrder: nextSortOrder++,
           body: c.body,
           updatedAt: Date.now(),
+          // Wherever this file actually lives right now (e.g. "test.md")
+          // -- so if the title gets edited and saved, the next backup
+          // renames that file to match instead of leaving it behind. See
+          // performDropboxBackup().
+          dropboxFile: c.sourcePath,
         });
       }
     });
@@ -1115,11 +1156,11 @@
 
         Promise.all([
           Promise.all(newFiles.map((f) =>
-            downloadProjectFile(f.path_lower).then((parsed) => ({ kind: "new", ...parsed }))
+            downloadProjectFile(f.path_lower).then((parsed) => ({ kind: "new", sourcePath: f.path_lower, ...parsed }))
           )),
           Promise.all(matchedProjects.map((p) =>
             downloadProjectFile(filesByName.get(dropboxFileName(p)).path_lower).then((parsed) =>
-              projectMatchesParsed(p, parsed) ? null : { kind: "changed", localId: p.id, ...parsed }
+              projectMatchesParsed(p, parsed) ? null : { kind: "changed", localId: p.id, sourcePath: filesByName.get(dropboxFileName(p)).path_lower, ...parsed }
             )
           )),
         ]).then(([newFound, changedFound]) => {
