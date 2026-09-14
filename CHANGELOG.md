@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.4.0] - 2026-09-14
+
+### Added
+- Live markdown preview in the note editor: a Write/Preview tab toggle
+  renders headings, bold/italic, links, task/bullet/numbered lists, and
+  `#followup` tags, instead of only showing raw markdown source.
+- Dropbox sync reworked to a one-file-per-project model: each project now
+  syncs to its own folder in Dropbox (`/Notebook Projects/<id>/`), as its
+  own timestamped `.md` snapshot (frontmatter + body) — never one combined
+  file — so a project's note can be edited directly in Dropbox, or
+  downloaded and edited externally, and picked up by Notebook without
+  touching any other project.
+- "Check Dropbox" (topbar): discovers projects that exist in Dropbox but
+  aren't known to this browser yet, and offers to import them via a
+  checklist (never silently).
+- "Dropbox history" (inside the note editor): browse and restore any of a
+  single project's kept snapshots (most recent 25, pruned automatically),
+  scoped to just that project.
+- On connect (or reconnecting after a session expires), Notebook now both
+  pushes local projects to Dropbox and checks for anything Dropbox-only,
+  immediately rather than waiting out the debounce.
+
+### Fixed
+- `- [ ] Order walnut sample panel`-only notes with no other prose line
+  after removing tasks/follow-ups from consideration used to show an
+  incorrect "(empty note)" dashboard preview even when the note's heading
+  had real content; the heading is now shown as a fallback in that case.
+  A related regression this introduced (repeating the title in the preview
+  when the body's heading just duplicates it) is fixed too.
+
+### Removed
+- The single combined-JSON-blob Dropbox backup model (one file holding
+  every project) from v0.2.1–v0.3.0, superseded by the one-file-per-project
+  model above.
+
 ## [0.3.0] - 2026-09-14
 
 ### Added

@@ -80,6 +80,7 @@
   .dbx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); flex-shrink: 0; }
   .dbx-dot.connected { background: var(--accent); }
   .dbx-dot.error { background: var(--danger); }
+  .dbx-dot.pending { background: var(--task); }
 
   .layout { display: grid; grid-template-columns: 1fr 220px 260px; gap: 22px; align-items: start; }
   @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
@@ -136,6 +137,24 @@
     font-family: inherit; font-size: 0.9rem; color: var(--ink);
   }
   .modal textarea { font-family: 'IBM Plex Mono', monospace; font-size: 0.83rem; line-height: 1.55; min-height: 260px; resize: vertical; }
+  .editor-tabs { display: flex; gap: 4px; }
+  .editor-tab { background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 4px 11px; font-size: 0.76rem; font-weight: 600; color: var(--ink-dim); }
+  .editor-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+  .markdown-preview { display: none; min-height: 260px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--bg); font-size: 0.88rem; line-height: 1.6; color: var(--ink); }
+  .markdown-preview.active { display: block; }
+  #editBody.editor-hidden { display: none; }
+  .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 { font-family: 'Fraunces', serif; margin: 10px 0 4px; line-height: 1.3; }
+  .markdown-preview h1 { font-size: 1.3rem; } .markdown-preview h2 { font-size: 1.15rem; } .markdown-preview h3 { font-size: 1.05rem; }
+  .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 { font-size: 0.95rem; }
+  .markdown-preview p { margin: 4px 0; }
+  .markdown-preview ul, .markdown-preview ol { margin: 4px 0; padding-left: 20px; }
+  .markdown-preview ul.task-list { list-style: none; padding-left: 4px; }
+  .markdown-preview ul.task-list li { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0; }
+  .markdown-preview .task-done { text-decoration: line-through; color: var(--ink-faint); }
+  .markdown-preview strong { font-weight: 600; }
+  .markdown-preview a { color: var(--accent-ink); }
+  .markdown-preview .followup-tag { color: var(--followup); font-family: 'IBM Plex Mono', monospace; font-size: 0.85em; }
+  .markdown-preview .preview-empty { color: var(--ink-faint); font-style: italic; }
   .modal .row { display: flex; gap: 14px; align-items: center; }
   .modal .checkbox-row { display: flex; align-items: center; gap: 8px; }
   .modal .checkbox-row input { accent-color: var(--accent); width: 16px; height: 16px; }
@@ -166,6 +185,7 @@
       <button class="btn primary" id="newProjectBtn" type="button">+ New project</button>
       <span class="dbx-status" id="dbxStatus"><span class="dbx-dot" id="dbxDot"></span><span id="dbxStatusText">Dropbox not connected</span></span>
       <button class="btn subtle" id="dbxBtn" type="button" title="Dropbox sync">Connect Dropbox</button>
+      <button class="btn subtle" id="dbxCheckBtn" type="button" title="Import projects that exist in Dropbox but not this browser" style="display:none;">Check Dropbox</button>
       <button class="btn subtle" id="themeToggleBtn" type="button" aria-pressed="false" title="Toggle dark mode"></button>
     </div>
   </div>
@@ -219,12 +239,22 @@
         </div>
       </div>
       <div class="field">
-        <label for="editBody">Note (Markdown)</label>
+        <div class="row" style="justify-content:space-between; align-items:baseline;">
+          <label for="editBody" style="margin-bottom:0;">Note (Markdown)</label>
+          <div class="editor-tabs" role="tablist">
+            <button type="button" class="editor-tab active" id="editTabWrite" role="tab" aria-selected="true">Write</button>
+            <button type="button" class="editor-tab" id="editTabPreview" role="tab" aria-selected="false">Preview</button>
+          </div>
+        </div>
         <textarea id="editBody" spellcheck="false"></textarea>
+        <div class="markdown-preview" id="editPreview"></div>
         <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
       </div>
       <div class="modal-actions">
-        <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
+          <button class="btn subtle" id="editHistoryBtn" type="button" style="display:none;">Dropbox history</button>
+        </div>
         <div class="right">
           <button class="btn" id="cancelEditBtn" type="button">Cancel</button>
           <button class="btn primary" id="saveProjectBtn" type="button">Save</button>
@@ -255,6 +285,32 @@
     </div>
   </div>
 
+  <!-- Discovery modal: projects that exist in Dropbox (their own file/folder each, per CLAUDE.md's one-file-per-project rule) but aren't known to this browser yet -- e.g. added directly in Dropbox, or synced from another device. Offered after a fresh connect and from "Check Dropbox" any time after; never imported without this confirmation. -->
+  <div class="modal-backdrop" id="dropboxDiscoveryBackdrop">
+    <div class="modal" style="max-width:480px;">
+      <h2>Projects found in Dropbox</h2>
+      <p style="color:var(--ink-dim); font-size:0.88rem; line-height:1.6;">These aren't in this browser yet. Each will be imported as its own project.</p>
+      <div id="dropboxDiscoveryList" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto; margin:12px 0;"></div>
+      <div class="modal-actions">
+        <button class="btn" id="dbxDiscoverySkip" type="button">Not now</button>
+        <button class="btn primary" id="dbxDiscoveryImport" type="button">Import selected</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-project Dropbox history: opened from inside the note editor for the project currently being edited. Each project has its own folder in Dropbox, so this only ever lists/restores versions of THAT ONE project -- never anything else. -->
+  <div class="modal-backdrop" id="dropboxVersionsBackdrop">
+    <div class="modal" style="max-width:480px;">
+      <h2 id="dropboxVersionsHeading">Dropbox history</h2>
+      <p id="dropboxVersionsIntro" style="color:var(--ink-dim); font-size:0.85rem; margin-bottom:12px;"></p>
+      <div id="dropboxVersionsList" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <div></div>
+        <button class="btn" id="dbxVersionsClose" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 (function () {
   "use strict";
@@ -270,13 +326,18 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.3.0";
+  const APP_VERSION = "0.4.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
   // Hashtag-style, so it reads like ordinary markdown/note-taking syntax:
   // "Chase legal for the redline #followup" or "#followup chase legal...".
   const FOLLOWUP_TAG_RE = /\s*#followup\b/i;
+
+  // Declared here (rather than down in the Dropbox section below) so it's
+  // already initialized by the time saveProjects() -- which can run during
+  // the initial seed a few lines down -- reads it via performDropboxBackup().
+  let dbx = null;
 
   function uid() {
     return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
@@ -331,6 +392,14 @@
 
   function saveProjects(list) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    // scheduleAutoBackup is declared later in this file (function
+    // declarations are hoisted, so the forward reference itself is fine),
+    // but it can run here during the very first, seed-time call to
+    // saveProjects() -- before the Dropbox section's `const`s further down
+    // have been reached. It's safe specifically because it returns
+    // immediately on `!dbx` without touching any of them; dbx itself is
+    // declared at the very top of this script for exactly this reason.
+    scheduleAutoBackup();
   }
 
   let projects = loadProjects();
@@ -362,6 +431,12 @@
       }
       const trimmed = line.trim();
       if (!trimmed) return;
+      // Swallow the first "# heading" line unconditionally, regardless of
+      // whether the project also has an explicit title -- most notes that
+      // have both simply repeat the title as their opening heading, and
+      // showing that as "Title Title body text..." in the preview would be
+      // worse than not showing it. See the fallback below for the case
+      // where that heading is the only prose the note has.
       if (!derivedTitle && trimmed.startsWith("# ")) {
         derivedTitle = trimmed.slice(2).trim();
         return;
@@ -371,16 +446,79 @@
       }
     });
 
-    return {
-      title: (project.title && project.title.trim()) || derivedTitle || "Untitled",
-      preview: previewParts.join(" "),
-      tasks,
-      followups
-    };
+    const title = (project.title && project.title.trim()) || derivedTitle || "Untitled";
+    let preview = previewParts.join(" ");
+    // If the note has no other prose (everything else was a task/follow-up,
+    // or nothing at all), fall back to the swallowed heading -- unless it's
+    // just a duplicate of the title, where an empty preview reads better
+    // than repeating it.
+    if (!preview && derivedTitle && derivedTitle !== title) preview = derivedTitle;
+
+    return { title, preview, tasks, followups };
   }
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // A small, self-contained markdown subset -- headings, bold, italic,
+  // links, bullet/numbered/task lists, and the #followup tag -- deliberately
+  // not a full CommonMark library, so this doesn't add another CDN
+  // dependency to pin/hash (per CLAUDE.md #5). Always escapes first, so
+  // note text can never inject real HTML; only the tags this function
+  // inserts itself ever reach the DOM.
+  function renderMarkdown(text) {
+    if (!text || !text.trim()) return '<p class="preview-empty">Nothing written yet.</p>';
+
+    const lines = text.split(/\r?\n/).map((line) => {
+      let html = escapeHtml(line);
+      html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+      html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      html = html.replace(/(^|[^\w])_([^_]+)_(?=$|[^\w])/g, "$1<em>$2</em>");
+      html = html.replace(/#followup\b/gi, '<span class="followup-tag">#followup</span>');
+      return html;
+    });
+
+    let out = "";
+    let listType = null;
+    const closeList = () => {
+      if (listType === "ol") out += "</ol>";
+      else if (listType === "ul") out += "</ul>";
+      else if (listType === "task") out += '</ul>';
+      listType = null;
+    };
+
+    lines.forEach((line) => {
+      const heading = /^\s*(#{1,6})\s+(.*)$/.exec(line);
+      // Task-list items ("- [ ] ..." / "- [x] ...") are checked before the
+      // plain-bullet regex, since they'd otherwise match that too.
+      const task = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/.exec(line);
+      const bullet = !task && /^\s*[-*]\s+(.*)$/.exec(line);
+      const numbered = /^\s*\d+\.\s+(.*)$/.exec(line);
+
+      if (heading) {
+        closeList();
+        const level = heading[1].length;
+        out += `<h${level}>${heading[2]}</h${level}>`;
+      } else if (task) {
+        if (listType !== "task") { closeList(); out += '<ul class="task-list">'; listType = "task"; }
+        const checked = task[1].toLowerCase() === "x";
+        out += `<li><input type="checkbox" disabled ${checked ? "checked" : ""}><span class="${checked ? "task-done" : ""}">${task[2]}</span></li>`;
+      } else if (bullet) {
+        if (listType !== "ul") { closeList(); out += "<ul>"; listType = "ul"; }
+        out += `<li>${bullet[1]}</li>`;
+      } else if (numbered) {
+        if (listType !== "ol") { closeList(); out += "<ol>"; listType = "ol"; }
+        out += `<li>${numbered[1]}</li>`;
+      } else {
+        closeList();
+        out += line.trim() === "" ? "" : `<p>${line}</p>`;
+      }
+    });
+    closeList();
+    return out;
   }
 
   function formatUpdated(ts) {
@@ -540,7 +678,27 @@
   const editSortOrder = document.getElementById("editSortOrder");
   const editActive = document.getElementById("editActive");
   const editBody = document.getElementById("editBody");
+  const editPreview = document.getElementById("editPreview");
+  const editTabWrite = document.getElementById("editTabWrite");
+  const editTabPreview = document.getElementById("editTabPreview");
   const deleteProjectBtn = document.getElementById("deleteProjectBtn");
+
+  function setEditorTab(mode) {
+    const isPreview = mode === "preview";
+    editTabWrite.classList.toggle("active", !isPreview);
+    editTabWrite.setAttribute("aria-selected", String(!isPreview));
+    editTabPreview.classList.toggle("active", isPreview);
+    editTabPreview.setAttribute("aria-selected", String(isPreview));
+    editBody.classList.toggle("editor-hidden", isPreview);
+    editPreview.classList.toggle("active", isPreview);
+    if (isPreview) editPreview.innerHTML = renderMarkdown(editBody.value);
+  }
+
+  editTabWrite.addEventListener("click", () => setEditorTab("write"));
+  editTabPreview.addEventListener("click", () => setEditorTab("preview"));
+  editBody.addEventListener("input", () => {
+    if (editTabPreview.classList.contains("active")) editPreview.innerHTML = renderMarkdown(editBody.value);
+  });
 
   function openEditor(id) {
     editingId = id || null;
@@ -553,6 +711,7 @@
       editActive.checked = !!project.active;
       editBody.value = project.body;
       deleteProjectBtn.style.display = "";
+      editHistoryBtn.style.display = dbx ? "" : "none";
     } else {
       editorHeading.textContent = "New project";
       editTitle.value = "";
@@ -560,7 +719,9 @@
       editActive.checked = true;
       editBody.value = "# \n\n";
       deleteProjectBtn.style.display = "none";
+      editHistoryBtn.style.display = "none";
     }
+    setEditorTab("write");
     editorBackdrop.classList.add("active");
     editTitle.focus();
   }
@@ -629,21 +790,145 @@
   // ======================================================================
 
   const DROPBOX_APP_KEY = "vfcwmj0eu2kdiud";
-  const DROPBOX_BACKUP_PATH = "/Notebook Backups/notebook.json";
-  let dbx = null;
+  // One folder per project (per CLAUDE.md's "every project is its own file"
+  // rule), named by that project's durable dropboxProjectId -- never its
+  // local id or title, both of which can change. Within a project's
+  // folder, each backup is its own timestamped .md snapshot (frontmatter +
+  // body, never overwritten), pruned to the MAX_BACKUPS most recent --
+  // this is exactly Simple Gantt's per-project-folder model.
+  const DROPBOX_ROOT = "/Notebook Projects";
+  const MAX_BACKUPS = 25;
+  // Matches Simple Gantt's AUTO_BACKUP_DELAY_MS exactly -- same debounce,
+  // same reasoning: edits commit to localStorage synchronously regardless
+  // of Dropbox, so there's no data-loss risk in waiting this long before
+  // pushing a backup, and it keeps a burst of edits from spamming uploads.
+  const AUTO_BACKUP_DELAY_MS = 60000;
+
+  let dbxAutoBackupTimer = null;
+  let discoveredCandidates = [];
+  let historyModalProjectId = null;
 
   const dbxBtn = document.getElementById("dbxBtn");
+  const dbxCheckBtn = document.getElementById("dbxCheckBtn");
   const dbxDot = document.getElementById("dbxDot");
   const dbxStatusText = document.getElementById("dbxStatusText");
   const footerDbxNote = document.getElementById("footerDbxNote");
   const dropboxInfoBackdrop = document.getElementById("dropboxInfoBackdrop");
+  const dropboxDiscoveryBackdrop = document.getElementById("dropboxDiscoveryBackdrop");
+  const dropboxDiscoveryList = document.getElementById("dropboxDiscoveryList");
+  const dropboxVersionsBackdrop = document.getElementById("dropboxVersionsBackdrop");
+  const dropboxVersionsList = document.getElementById("dropboxVersionsList");
+  const editHistoryBtn = document.getElementById("editHistoryBtn");
+
+  function timestampForFilename() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  }
+
+  // Assigns a durable id the first time a project syncs to Dropbox, so its
+  // folder name never changes even if the project is renamed or its local
+  // id is regenerated. Persisted directly (not via saveProjects(), which
+  // would re-trigger scheduleAutoBackup() from inside a backup already in
+  // progress).
+  function ensureDropboxProjectId(project) {
+    if (!project.dropboxProjectId) {
+      project.dropboxProjectId = uid();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+    }
+    return project.dropboxProjectId;
+  }
+
+  function getDropboxFolder(project) {
+    return `${DROPBOX_ROOT}/${ensureDropboxProjectId(project)}`;
+  }
+
+  // A project's Dropbox file: frontmatter (title/active/sortOrder) + the
+  // markdown body below it, per CLAUDE.md's one-file-per-project format --
+  // the same shape the (planned) Export-all zip will use.
+  function serializeProjectMarkdown(project) {
+    const front = [
+      "---",
+      `title: ${JSON.stringify(project.title || "")}`,
+      `active: ${!!project.active}`,
+      `sortOrder: ${Number(project.sortOrder) || 0}`,
+      "---",
+      "",
+    ].join("\n");
+    return front + (project.body || "");
+  }
+
+  function parseProjectMarkdown(text) {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+    if (!match) return { title: "", active: true, sortOrder: 0, body: text };
+    const result = { title: "", active: true, sortOrder: 0, body: match[2] };
+    match[1].split(/\r?\n/).forEach((line) => {
+      const m = /^(\w+):\s*(.*)$/.exec(line);
+      if (!m) return;
+      const raw = m[2].trim();
+      if (m[1] === "title") { try { result.title = JSON.parse(raw); } catch (err) { result.title = raw; } }
+      else if (m[1] === "active") result.active = raw === "true";
+      else if (m[1] === "sortOrder") result.sortOrder = Number(raw) || 0;
+    });
+    return result;
+  }
+
+  // filesListFolder() truncates to Dropbox's own per-page limit and sets
+  // has_more/cursor when there's more -- walks every page via
+  // filesListFolderContinue so callers always see the complete list.
+  function listAllDropboxEntries(path) {
+    function collectFrom(res, entriesSoFar) {
+      const combined = entriesSoFar.concat(res.result.entries);
+      if (!res.result.has_more) return Promise.resolve(combined);
+      return dbx.filesListFolderContinue({ cursor: res.result.cursor }).then((nextRes) => collectFrom(nextRes, combined));
+    }
+    return dbx.filesListFolder({ path }).then((res) => collectFrom(res, []));
+  }
+
+  function listProjectSnapshots(dropboxProjectId) {
+    return listAllDropboxEntries(`${DROPBOX_ROOT}/${dropboxProjectId}`).then((entries) =>
+      entries
+        .filter((e) => e[".tag"] === "file" && e.name.toLowerCase().endsWith(".md"))
+        .sort((a, b) => new Date(b.client_modified) - new Date(a.client_modified))
+    );
+  }
+
+  function downloadSnapshot(pathLower) {
+    return dbx.filesDownload({ path: pathLower }).then((res) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => { try { resolve(parseProjectMarkdown(reader.result)); } catch (err) { reject(err); } };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(res.result.fileBlob);
+    }));
+  }
+
+  function pruneProjectSnapshots(dropboxProjectId) {
+    if (!dbx) return;
+    listProjectSnapshots(dropboxProjectId)
+      .then((files) => {
+        if (files.length <= MAX_BACKUPS) return;
+        files.slice(MAX_BACKUPS).forEach((f) => {
+          dbx.filesDeleteV2({ path: f.path_lower }).catch((err) => console.error("Dropbox prune failed:", err));
+        });
+      })
+      .catch((err) => console.error("Dropbox prune list failed:", err));
+  }
 
   function setDropboxUi(state, detail) {
-    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : "");
+    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : (state === "pending" || state === "syncing") ? " pending" : "");
+    dbxCheckBtn.style.display = (state === "connected" || state === "pending" || state === "syncing") ? "" : "none";
     if (state === "connected") {
       dbxStatusText.textContent = "Dropbox connected";
       dbxBtn.textContent = "Disconnect";
       footerDbxNote.textContent = "Backed up to Dropbox — this browser stays the source of truth.";
+    } else if (state === "pending") {
+      dbxStatusText.textContent = "Dropbox connected · backup pending";
+      dbxBtn.textContent = "Disconnect";
+      footerDbxNote.textContent = "Changes are saved locally now; backing up to Dropbox shortly.";
+    } else if (state === "syncing") {
+      dbxStatusText.textContent = "Dropbox connected · backing up…";
+      dbxBtn.textContent = "Disconnect";
+      footerDbxNote.textContent = "Backing up to Dropbox now.";
     } else if (state === "error") {
       dbxStatusText.textContent = detail || "Dropbox session expired";
       dbxBtn.textContent = "Reconnect Dropbox";
@@ -656,18 +941,35 @@
   }
 
   function initDropboxFromRedirect() {
+    let justAuthenticated = false;
     if (location.hash.includes("access_token")) {
       const params = new URLSearchParams(location.hash.slice(1));
       const token = params.get("access_token");
       if (token) {
         localStorage.setItem("dropbox_token", token);
         history.replaceState(null, "", location.pathname + location.search);
+        justAuthenticated = true;
       }
     }
     const saved = localStorage.getItem("dropbox_token");
     if (saved && window.Dropbox) {
       dbx = new Dropbox.Dropbox({ accessToken: saved });
       setDropboxUi("connected");
+      // Only right after an actual (re)authenticate, not on every ordinary
+      // page load with an already-saved token -- otherwise this would run
+      // on every reload. Two independent things happen, both immediately
+      // (not debounced -- connecting is a deliberate, one-time moment,
+      // unlike an edit): push this browser's projects to Dropbox (each
+      // still gets its own file/folder; nothing here is a merge), and
+      // separately check for projects that exist in Dropbox but aren't
+      // known here yet, which are only ever *offered* via the discovery
+      // modal -- never imported without that confirmation, matching Simple
+      // Gantt's "no automatic merge/reconciliation" principle. See
+      // CLAUDE.md #5.
+      if (justAuthenticated) {
+        performDropboxBackup(true);
+        discoverDropboxProjects(false);
+      }
     } else {
       setDropboxUi("disconnected");
     }
@@ -686,6 +988,7 @@
 
   function disconnectDropbox() {
     if (!confirm("Disconnect this browser from Dropbox?\n\nYour local projects aren't affected, and nothing is deleted from Dropbox.")) return;
+    if (dbxAutoBackupTimer) { clearTimeout(dbxAutoBackupTimer); dbxAutoBackupTimer = null; }
     dbx = null;
     localStorage.removeItem("dropbox_token");
     setDropboxUi("disconnected");
@@ -695,6 +998,7 @@
     const status = err && (err.status || (err.error && err.error.status));
     if (status === 401) {
       dbx = null;
+      if (dbxAutoBackupTimer) { clearTimeout(dbxAutoBackupTimer); dbxAutoBackupTimer = null; }
       localStorage.removeItem("dropbox_token");
       setDropboxUi("error", "Dropbox session expired — reconnect");
       return true;
@@ -702,21 +1006,190 @@
     return false;
   }
 
-  function backupToDropbox() {
-    if (!dbx) { dropboxLogin(); return; }
-    const payload = JSON.stringify(projects, null, 2);
-    dbx.filesUpload({ path: DROPBOX_BACKUP_PATH, contents: payload, mode: { ".tag": "overwrite" } })
-      .then(() => setDropboxUi("connected"))
-      .catch((err) => { if (!handleDropboxAuthError(err)) console.error("Dropbox backup failed:", err); });
+  // Called after every saveProjects() -- marks the pending state
+  // immediately (so the UI never claims "connected" without a backup on
+  // the way) but only actually uploads after AUTO_BACKUP_DELAY_MS of no
+  // further edits, exactly like Simple Gantt's scheduleAutoBackup().
+  function scheduleAutoBackup() {
+    if (!dbx) return;
+    if (dbxAutoBackupTimer) clearTimeout(dbxAutoBackupTimer);
+    setDropboxUi("pending");
+    dbxAutoBackupTimer = setTimeout(() => performDropboxBackup(true), AUTO_BACKUP_DELAY_MS);
   }
+
+  // isAuto=true (fired from the debounce timer, or the initial backup when
+  // nothing existed in Dropbox yet) never opens the login flow as a side
+  // effect; isAuto=false (a direct user click) does. Backs up every
+  // project as its own snapshot in its own folder -- never one combined
+  // file -- per CLAUDE.md's one-file-per-project rule.
+  function performDropboxBackup(isAuto) {
+    if (!dbx) { if (!isAuto) dropboxLogin(); return; }
+    if (dbxAutoBackupTimer) { clearTimeout(dbxAutoBackupTimer); dbxAutoBackupTimer = null; }
+    if (!projects.length) { setDropboxUi("connected"); return; }
+    setDropboxUi("syncing");
+    const stamp = timestampForFilename();
+    Promise.all(projects.map((project) => {
+      const folder = getDropboxFolder(project);
+      const filepath = `${folder}/${stamp}.md`;
+      return dbx.filesUpload({ path: filepath, contents: serializeProjectMarkdown(project), mode: { ".tag": "add" }, autorename: true })
+        .then(() => pruneProjectSnapshots(project.dropboxProjectId));
+    }))
+      .then(() => setDropboxUi("connected"))
+      .catch((err) => {
+        if (handleDropboxAuthError(err)) return;
+        setDropboxUi("error", "Dropbox backup failed");
+        console.error("Dropbox backup failed:", err);
+      });
+  }
+
+  function closeDiscoveryModal() {
+    dropboxDiscoveryBackdrop.classList.remove("active");
+    discoveredCandidates = [];
+  }
+
+  function openDiscoveryModal(candidates) {
+    discoveredCandidates = candidates;
+    dropboxDiscoveryList.innerHTML = candidates.map((c, i) => `
+      <label style="display:flex; align-items:center; gap:10px; padding:6px 2px;">
+        <input type="checkbox" class="discovery-checkbox" value="${i}" checked>
+        <span>${escapeHtml(c.title || "(untitled project)")}</span>
+      </label>`).join("");
+    dropboxDiscoveryBackdrop.classList.add("active");
+  }
+
+  document.getElementById("dbxDiscoverySkip").addEventListener("click", closeDiscoveryModal);
+  dropboxDiscoveryBackdrop.addEventListener("click", (e) => { if (e.target === dropboxDiscoveryBackdrop) closeDiscoveryModal(); });
+  document.getElementById("dbxDiscoveryImport").addEventListener("click", () => {
+    const checked = Array.from(dropboxDiscoveryList.querySelectorAll(".discovery-checkbox:checked"))
+      .map((cb) => discoveredCandidates[Number(cb.value)]);
+    closeDiscoveryModal();
+    if (!checked.length) return;
+    const baseSortOrder = projects.reduce((max, p) => Math.max(max, p.sortOrder || 0), 0);
+    checked.forEach((c, i) => {
+      projects.push({
+        id: uid(),
+        dropboxProjectId: c.dropboxProjectId,
+        title: c.title,
+        active: c.active,
+        sortOrder: baseSortOrder + i + 1,
+        body: c.body,
+        updatedAt: Date.now(),
+      });
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+    render();
+  });
+
+  // Lists every top-level folder under DROPBOX_ROOT (one per project) and
+  // offers to import whichever ones this browser doesn't already know --
+  // i.e. a project added directly in Dropbox, or synced from another
+  // device. Run automatically right after a fresh (re)authenticate, and
+  // manually any time via the "Check Dropbox" button (manualTrigger=true,
+  // which also opens the login flow if not connected, and alerts when
+  // nothing new is found). Never imports without the discovery modal's
+  // confirmation.
+  function discoverDropboxProjects(manualTrigger) {
+    if (!dbx) { if (manualTrigger) dropboxLogin(); return; }
+    listAllDropboxEntries(DROPBOX_ROOT)
+      .then((allEntries) => {
+        const folders = allEntries.filter((e) => e[".tag"] === "folder");
+        const knownIds = new Set(projects.map((p) => p.dropboxProjectId).filter(Boolean));
+        const candidateFolders = folders.filter((f) => !knownIds.has(f.name));
+
+        if (!candidateFolders.length) {
+          if (manualTrigger) alert("No additional Dropbox projects found beyond what's already in this browser.");
+          return;
+        }
+
+        Promise.all(candidateFolders.map((f) =>
+          listProjectSnapshots(f.name).then((files) => {
+            if (!files.length) return null;
+            return downloadSnapshot(files[0].path_lower).then((parsed) => ({ ...parsed, dropboxProjectId: f.name }));
+          })
+        )).then((results) => {
+          const found = results.filter(Boolean);
+          if (!found.length) { if (manualTrigger) alert("No additional Dropbox projects found beyond what's already in this browser."); return; }
+          openDiscoveryModal(found);
+        });
+      })
+      .catch((err) => {
+        if (handleDropboxAuthError(err)) return;
+        const summary = (err && err.error && err.error.error_summary) || "";
+        if (summary.indexOf("path/not_found") > -1) {
+          if (manualTrigger) alert("No Dropbox projects found yet.");
+        } else {
+          console.error("Dropbox discovery error:", err);
+        }
+      });
+  }
+
+  // Per-project history, opened from inside the note editor. Only ever
+  // lists/restores snapshots from THIS ONE project's folder.
+  function renderProjectVersionsList(project, files) {
+    if (!files.length) {
+      dropboxVersionsList.innerHTML = '<div class="rail-empty">No Dropbox backups yet for this project.</div>';
+      return;
+    }
+    dropboxVersionsList.innerHTML = files.map((f) => `
+      <div class="rail-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <span class="mono" style="font-size:0.78rem;">${escapeHtml(new Date(f.client_modified).toLocaleString())}</span>
+        <button type="button" class="btn subtle" data-path="${escapeHtml(f.path_lower)}" style="padding:4px 10px;">Restore</button>
+      </div>`).join("");
+    dropboxVersionsList.querySelectorAll("button[data-path]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!confirm("Restore this version? It replaces this project's current title, status, and note.")) return;
+        downloadSnapshot(btn.dataset.path)
+          .then((parsed) => {
+            const p = projects.find((x) => x.id === project.id);
+            if (!p) return;
+            p.title = parsed.title;
+            p.active = parsed.active;
+            p.sortOrder = parsed.sortOrder;
+            p.body = parsed.body;
+            p.updatedAt = Date.now();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+            dropboxVersionsBackdrop.classList.remove("active");
+            closeEditor();
+            render();
+          })
+          .catch((err) => { console.error("Dropbox version download failed:", err); alert("Couldn't load that version."); });
+      });
+    });
+  }
+
+  function openProjectHistoryModal(project) {
+    if (!dbx) { dropboxLogin(); return; }
+    historyModalProjectId = project.id;
+    document.getElementById("dropboxVersionsHeading").textContent = `Dropbox history — ${project.title || "Untitled"}`;
+    document.getElementById("dropboxVersionsIntro").textContent = `Notebook keeps this project's most recent ${MAX_BACKUPS} backups.`;
+    dropboxVersionsList.innerHTML = '<div class="rail-empty">Loading…</div>';
+    dropboxVersionsBackdrop.classList.add("active");
+    const dropboxProjectId = ensureDropboxProjectId(project);
+    listProjectSnapshots(dropboxProjectId)
+      .then((files) => renderProjectVersionsList(project, files))
+      .catch((err) => {
+        if (handleDropboxAuthError(err)) { dropboxVersionsBackdrop.classList.remove("active"); return; }
+        dropboxVersionsList.innerHTML = '<div class="rail-empty">Couldn\'t load backups.</div>';
+        console.error("Dropbox versions list failed:", err);
+      });
+  }
+
+  editHistoryBtn.addEventListener("click", () => {
+    const project = projects.find((p) => p.id === editingId);
+    if (project) openProjectHistoryModal(project);
+  });
+  document.getElementById("dbxVersionsClose").addEventListener("click", () => dropboxVersionsBackdrop.classList.remove("active"));
+  dropboxVersionsBackdrop.addEventListener("click", (e) => { if (e.target === dropboxVersionsBackdrop) dropboxVersionsBackdrop.classList.remove("active"); });
+
+  dbxCheckBtn.addEventListener("click", () => discoverDropboxProjects(true));
 
   dbxBtn.addEventListener("click", () => {
     if (dbx) disconnectDropbox();
     else dropboxLogin();
   });
 
-  // Expose for the (future) restore UI / tests -- see backlog.md.
-  window.__notebook = { backupToDropbox, handleDropboxAuthError };
+  // Expose for tests.
+  window.__notebook = { performDropboxBackup, scheduleAutoBackup, discoverDropboxProjects, handleDropboxAuthError };
 
   // ======================================================================
   // Boot
