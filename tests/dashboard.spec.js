@@ -44,6 +44,27 @@ test('Dropbox connect button is disabled behavior when app key is unset', async 
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox not connected');
 });
 
+test('info icon documents the #followup and task syntax', async ({ page }) => {
+  const infoIcon = page.locator('.info-icon');
+  await expect(infoIcon).toHaveAttribute('title', /#followup/);
+  await expect(infoIcon).toHaveAttribute('title', /- \[ \] do the thing/);
+});
+
+test('dark mode toggle flips the theme attribute and persists across reload', async ({ page }) => {
+  const html = page.locator('html');
+  await expect(html).toHaveAttribute('data-theme', 'light');
+
+  await page.click('#themeToggleBtn');
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('#themeToggleBtn')).toHaveText(/Light mode/);
+
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+  await page.click('#themeToggleBtn');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
 test('footer shows a version number and opens GitHub / Buy Me a Coffee in new tabs', async ({ page }) => {
   await expect(page.locator('#appVersion')).toHaveText(/^v\d+\.\d+\.\d+$/);
 

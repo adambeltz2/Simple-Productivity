@@ -87,6 +87,8 @@
   .col-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .col-heading h2 { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
   .col-heading .n { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-faint); }
+  .info-icon { display: inline-block; font-size: 0.7rem; color: var(--ink-faint); cursor: help; vertical-align: middle; margin-left: 2px; }
+  .info-icon:hover, .info-icon:focus { color: var(--accent); }
 
   .projects { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
   @media (max-width: 620px) { .projects { grid-template-columns: 1fr; } }
@@ -164,12 +166,16 @@
       <button class="btn primary" id="newProjectBtn" type="button">+ New project</button>
       <span class="dbx-status" id="dbxStatus"><span class="dbx-dot" id="dbxDot"></span><span id="dbxStatusText">Dropbox not connected</span></span>
       <button class="btn subtle" id="dbxBtn" type="button" title="Dropbox sync">Connect Dropbox</button>
+      <button class="btn subtle" id="themeToggleBtn" type="button" aria-pressed="false" title="Toggle dark mode"></button>
     </div>
   </div>
 
   <div class="layout">
     <div>
-      <div class="col-heading"><h2>Projects</h2><span class="n" id="projectsCount">0 total</span></div>
+      <div class="col-heading">
+        <h2>Projects <span class="info-icon" tabindex="0" title="Tasks: &#10;  - [ ] do the thing&#10;  - [x] done thing&#10;&#10;Follow-ups: add #followup anywhere on a line, e.g.&#10;  check back with someone #followup">ⓘ</span></h2>
+        <span class="n" id="projectsCount">0 total</span>
+      </div>
       <div class="projects" id="projectsGrid"></div>
     </div>
 
@@ -215,7 +221,7 @@
       <div class="field">
         <label for="editBody">Note (Markdown)</label>
         <textarea id="editBody" spellcheck="false"></textarea>
-        <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">!followup: check back with someone</code></div>
+        <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
       </div>
       <div class="modal-actions">
         <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
@@ -264,11 +270,13 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.1.0";
+  const APP_VERSION = "0.2.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
-  const FOLLOWUP_RE = /^\s*!followup:\s*(.+)$/i;
+  // Hashtag-style, so it reads like ordinary markdown/note-taking syntax:
+  // "Chase legal for the redline #followup" or "#followup chase legal...".
+  const FOLLOWUP_TAG_RE = /\s*#followup\b/i;
 
   function uid() {
     return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
@@ -280,11 +288,11 @@
     return [
       {
         id: uid(), title: "Kitchen Remodel", active: true, sortOrder: 1, updatedAt: now - 2 * 3600e3,
-        body: "# Kitchen Remodel\n\nCabinet quote came in at $14,200. Need to confirm with Dana before signing off on the oak finish vs walnut.\n\n- [ ] Order walnut sample panel\n- [ ] Schedule electrician walkthrough\n\n!followup: Confirm oak vs walnut finish with Dana\n"
+        body: "# Kitchen Remodel\n\nCabinet quote came in at $14,200. Need to confirm with Dana before signing off on the oak finish vs walnut.\n\n- [ ] Order walnut sample panel\n- [ ] Schedule electrician walkthrough\n\n- Confirm oak vs walnut finish with Dana #followup\n"
       },
       {
         id: uid(), title: "Client — Meridian Co.", active: true, sortOrder: 2, updatedAt: now - 24 * 3600e3,
-        body: "# Meridian Co. Engagement\n\nPhase 2 scope doc sent for review. Waiting on legal redline before the kickoff call next Tuesday.\n\n!followup: Chase legal for the Phase 2 redline\n!followup: Ask kickoff call to move to Wed if redline slips\n"
+        body: "# Meridian Co. Engagement\n\nPhase 2 scope doc sent for review. Waiting on legal redline before the kickoff call next Tuesday.\n\n- Chase legal for the Phase 2 redline #followup\n- Ask kickoff call to move to Wed if redline slips #followup\n"
       },
       {
         id: uid(), title: "Personal Taxes 2025", active: true, sortOrder: 3, updatedAt: now - 3 * 86400e3,
@@ -347,9 +355,9 @@
         tasks.push({ text: taskMatch[2].trim(), done: /x/i.test(taskMatch[1]), line: idx });
         return;
       }
-      const followupMatch = line.match(FOLLOWUP_RE);
-      if (followupMatch) {
-        followups.push({ text: followupMatch[1].trim(), line: idx });
+      if (FOLLOWUP_TAG_RE.test(line)) {
+        const text = line.replace(FOLLOWUP_TAG_RE, "").replace(/^[-*]\s+/, "").trim();
+        if (text) followups.push({ text, line: idx });
         return;
       }
       const trimmed = line.trim();
@@ -720,6 +728,35 @@
   // ======================================================================
 
   document.getElementById("appVersion").textContent = `v${APP_VERSION}`;
+
+  // ======================================================================
+  // Dark mode: explicit on/off toggle, persisted, defaulting to the OS
+  // preference the first time (no stored choice yet).
+  // ======================================================================
+
+  const THEME_KEY = "notebook_theme";
+  const themeToggleBtn = document.getElementById("themeToggleBtn");
+
+  function currentTheme() {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+    return (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    themeToggleBtn.textContent = theme === "dark" ? "☀️ Light mode" : "🌙 Dark mode";
+    themeToggleBtn.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+  }
+
+  themeToggleBtn.addEventListener("click", () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+  });
+
+  applyTheme(currentTheme());
+
   initDropboxFromRedirect();
   render();
 })();

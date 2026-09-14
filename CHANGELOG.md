@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.2.0] - 2026-09-14
+
+### Added
+- Dark mode toggle in the topbar: explicit on/off, persisted in
+  `localStorage`, defaulting to the OS preference the first time.
+- Hover-over info icon (ⓘ) next to "Projects" documenting the task and
+  follow-up markdown syntax at a glance.
+
+### Changed
+- Follow-up syntax switched from the `!followup: ...` line marker to an
+  inline `#followup` hashtag (leading or trailing), to read like ordinary
+  note-taking markdown rather than a bespoke prefix. Existing notes using
+  the old marker will need to be updated manually.
+
 ## [0.1.0] - 2026-09-14
 
 ### Added

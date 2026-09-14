@@ -12,6 +12,11 @@ no account required. Everything lives in this browser's `localStorage`.
 Dropbox is an optional, add-on backup/sync layer — never the source of
 truth.
 
+A dark mode toggle (top right, next to the Dropbox button) switches
+explicitly between light and dark and remembers your choice; it defaults to
+your OS preference the first time. Hovering the ⓘ next to "Projects" shows
+the task/follow-up syntax below as a quick reference.
+
 This is a sibling project to [Simple Gantt](https://github.com/adambeltz2/Simple-Gantt)
 and deliberately follows the same architecture: one static `index.html`,
 vanilla JS, no build step, no framework.
@@ -38,10 +43,12 @@ markdown `body`. Within the body:
   - [ ] Order walnut sample panel
   - [x] Email accountant re: missing 1099
   ```
-- **Follow-ups** use an inline marker:
+- **Follow-ups** use a hashtag, anywhere on the line:
   ```markdown
-  !followup: Confirm oak vs walnut finish with Dana
+  - Confirm oak vs walnut finish with Dana #followup
   ```
+  (`#followup Confirm oak vs walnut finish with Dana` also works — the tag
+  can lead or trail; everything else on the line is the follow-up text.)
 - The first non-heading lines of the body become the dashboard preview.
 - A `# Heading` on its own line is used as the title if one wasn't set
   explicitly.
