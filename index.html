@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Notebook</title>
 <meta name="description" content="A local-first dashboard of markdown project notes, with tasks and follow-ups pulled out automatically." />
+<!-- PWA: installable app shell (manifest + icons + service worker,
+     registered near the end of the page script), mirroring Simple Gantt's
+     own manifest.json + sw.js + icons/ setup per CLAUDE.md #5. -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#3d6b52" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Notebook" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -336,7 +348,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.10.0";
+  const APP_VERSION = "0.11.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -1408,6 +1420,16 @@
 
   initDropboxFromRedirect();
   render();
+
+  // PWA: register the service worker (sw.js) so the app shell works
+  // offline after a first successful load. Guarded to http(s) only --
+  // service workers are refused outright on file://, e.g. opening
+  // index.html directly from disk, which CLAUDE.md #5 still supports.
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
 })();
 </script>
 </body>

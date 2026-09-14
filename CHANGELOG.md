@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.11.0] - 2026-09-14
+
+### Added
+- Installable PWA support: `manifest.json`, `sw.js` (a network-first
+  service worker for the same-origin app shell, cache-first for the
+  Dropbox SDK), and a set of app icons, mirroring Simple Gantt's own
+  `manifest.json` + `sw.js` + `icons/` pattern. Registration is guarded to
+  http(s) only, so opening `index.html` directly from disk is unaffected.
+
 ## [0.10.0] - 2026-09-14
 
 ### Added

@@ -174,6 +174,34 @@ test('footer shows a version number and opens GitHub / Buy Me a Coffee in new ta
   await expect(coffeeLink).toHaveAttribute('target', '_blank');
 });
 
+test('PWA: manifest, icons, and service worker are all wired up and reachable', async ({ page }) => {
+  await page.goto('/index.html');
+
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', 'manifest.json');
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', 'icons/apple-touch-icon.png');
+
+  const manifestRes = await page.request.get('/manifest.json');
+  expect(manifestRes.ok()).toBe(true);
+  const manifest = await manifestRes.json();
+  expect(manifest.name).toBe('Notebook');
+  expect(manifest.icons.length).toBeGreaterThan(0);
+  for (const icon of manifest.icons) {
+    const iconRes = await page.request.get('/' + icon.src);
+    expect(iconRes.ok()).toBe(true);
+  }
+
+  const swRes = await page.request.get('/sw.js');
+  expect(swRes.ok()).toBe(true);
+
+  // The registration itself is fired from a window "load" listener in
+  // index.html's boot section; give it a moment to actually install and
+  // activate against the real sw.js served by the test server.
+  const activeScriptUrl = await page.evaluate(() =>
+    navigator.serviceWorker.ready.then((r) => r.active && r.active.scriptURL)
+  );
+  expect(activeScriptUrl).toContain('/sw.js');
+});
+
 // Sample/onboarding projects (isSample: true) are deliberately excluded
 // from Dropbox backup -- see seedProjects() in index.html -- so tests that
 // exercise actual backup behavior need real (non-sample) projects seeded

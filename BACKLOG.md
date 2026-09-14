@@ -14,9 +14,6 @@ Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
   library. Triggering a save of the generated blob also needs a real
   `<a download>` click, which only works for an end user in the deployed
   app, not inside an Artifact preview. _Affected: `index.html`._
-- `[FEATURE]` PWA support (manifest.json, service worker, app icons),
-  matching Simple Gantt's `manifest.json` + `sw.js` + `icons/` pattern.
-  _Affected: new `manifest.json`, `sw.js`, `icons/`._
 - `[FEATURE]` CSV/JSON export-import of all projects, as a portable
   interchange format independent of Dropbox (matches Simple Gantt's CSV
   round-trip). _Affected: `index.html`._
