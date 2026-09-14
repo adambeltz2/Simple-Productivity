@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.12.0] - 2026-09-14
+
+### Fixed
+- On narrow/mobile widths, the topbar's Dropbox status pill and two
+  separate action buttons (Connect/Disconnect, Check Dropbox) didn't wrap,
+  pushing the dark mode toggle off-screen. Consolidated into a single
+  "Dropbox" trigger button (still showing the status dot at a glance) that
+  opens a dropdown with the status text and actions, cutting the topbar
+  down to two elements alongside "+ New project".
+- A partial backup failure (e.g. one project's upload hitting a transient
+  error while the rest succeed) reused the same "error" UI as an actually
+  expired Dropbox session -- relabeling the action button "Reconnect
+  Dropbox" even though the session was still valid, which was both
+  misleading and wrong (clicking it disconnected rather than reconnected).
+  This is now its own state: the button still reads "Disconnect", and the
+  status text names how many projects failed. It retries automatically on
+  the next edit or reload.
+
 ## [0.11.0] - 2026-09-14
 
 ### Added
