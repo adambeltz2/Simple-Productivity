@@ -82,13 +82,17 @@
   .search input::placeholder { color: var(--ink-faint); }
   .search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
-  .topbar-actions { display: flex; align-items: center; gap: 10px; }
+  .topbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
   .btn { border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink); border-radius: 8px; padding: 9px 14px; font-size: 0.82rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
   .btn.primary:hover { filter: brightness(1.06); }
   .btn.subtle { background: transparent; border-color: transparent; color: var(--ink-dim); padding: 9px 10px; }
-  .dbx-status { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: var(--ink-dim); }
+  .dbx-menu { position: relative; }
+  .dbx-dropdown { display: none; position: absolute; top: calc(100% + 6px); right: 0; flex-direction: column; gap: 8px; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 12px; min-width: 220px; max-width: min(280px, calc(100vw - 32px)); z-index: 40; }
+  .dbx-dropdown.open { display: flex; }
+  .dbx-dropdown .btn { width: 100%; justify-content: center; }
+  .dbx-dropdown-status { font-size: 0.8rem; color: var(--ink-dim); line-height: 1.4; }
   .dbx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); flex-shrink: 0; }
   .dbx-dot.connected { background: var(--accent); }
   .dbx-dot.error { background: var(--danger); }
@@ -200,9 +204,23 @@
     </div>
     <div class="topbar-actions">
       <button class="btn primary" id="newProjectBtn" type="button">+ New project</button>
-      <span class="dbx-status" id="dbxStatus"><span class="dbx-dot" id="dbxDot"></span><span id="dbxStatusText">Dropbox not connected</span></span>
-      <button class="btn subtle" id="dbxBtn" type="button" title="Dropbox sync">Connect Dropbox</button>
-      <button class="btn subtle" id="dbxCheckBtn" type="button" title="Import projects that exist in Dropbox but not this browser" style="display:none;">Check Dropbox</button>
+      <!-- Dropbox status/actions consolidated into one trigger + dropdown
+           (previously four separate topbar elements: a status pill, a
+           Connect/Disconnect button, and a Check Dropbox button) so the
+           topbar stays a single row instead of overflowing off-screen on
+           narrow/mobile widths. The dot on the trigger still gives an
+           at-a-glance connected/pending/syncing/error read without opening
+           the dropdown. -->
+      <div class="dbx-menu">
+        <button class="btn subtle" id="dbxMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Dropbox sync">
+          <span class="dbx-dot" id="dbxDot"></span> Dropbox
+        </button>
+        <div class="dbx-dropdown" id="dbxDropdown">
+          <div class="dbx-dropdown-status" id="dbxStatusText">Dropbox not connected</div>
+          <button class="btn" id="dbxCheckBtn" type="button" title="Import projects that exist in Dropbox but not this browser" style="display:none;">Check Dropbox</button>
+          <button class="btn" id="dbxBtn" type="button">Connect Dropbox</button>
+        </div>
+      </div>
       <button class="btn subtle" id="themeToggleBtn" type="button" aria-pressed="false" title="Toggle dark mode"></button>
     </div>
   </div>
@@ -348,7 +366,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.11.0";
+  const APP_VERSION = "0.12.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -938,10 +956,31 @@
   const dbxCheckBtn = document.getElementById("dbxCheckBtn");
   const dbxDot = document.getElementById("dbxDot");
   const dbxStatusText = document.getElementById("dbxStatusText");
+  const dbxMenuBtn = document.getElementById("dbxMenuBtn");
+  const dbxDropdown = document.getElementById("dbxDropdown");
   const footerDbxNote = document.getElementById("footerDbxNote");
   const dropboxInfoBackdrop = document.getElementById("dropboxInfoBackdrop");
   const dropboxDiscoveryBackdrop = document.getElementById("dropboxDiscoveryBackdrop");
   const dropboxDiscoveryList = document.getElementById("dropboxDiscoveryList");
+
+  // The Dropbox status pill + its two action buttons are consolidated
+  // behind this one trigger (see the topbar markup) so mobile widths don't
+  // overflow with four separate elements. Standard dropdown behavior:
+  // toggle on the trigger, close on an outside click or Escape.
+  function setDbxDropdown(open) {
+    dbxDropdown.classList.toggle("open", open);
+    dbxMenuBtn.setAttribute("aria-expanded", String(open));
+  }
+  dbxMenuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setDbxDropdown(!dbxDropdown.classList.contains("open"));
+  });
+  document.addEventListener("click", (e) => {
+    if (dbxDropdown.classList.contains("open") && !dbxDropdown.contains(e.target) && e.target !== dbxMenuBtn) setDbxDropdown(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dbxDropdown.classList.contains("open")) setDbxDropdown(false);
+  });
 
   // A project's filename is derived straight from its title -- no stored
   // id, no folder. That means renaming a project's title changes which
@@ -1014,9 +1053,17 @@
 
   const LAST_SYNCED_KEY = "dropbox_last_synced";
 
+  // "error" means the session itself is gone (an expired/invalid token --
+  // handleDropboxAuthError() has already cleared `dbx`), so reconnecting is
+  // the only way forward. "sync-error" is a still-connected session where
+  // one backup attempt failed (rate limiting, a transient network error) --
+  // `dbx` is still valid, so offering "Reconnect Dropbox" there would be
+  // both misleading (nothing actually disconnected) and wrong (clicking it
+  // calls disconnectDropbox(), not a reconnect, since dbx is still truthy).
+  // It'll retry automatically on the next edit or reload.
   function setDropboxUi(state, detail) {
-    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : state === "pending" ? " pending" : state === "syncing" ? " syncing" : "");
-    dbxCheckBtn.style.display = (state === "connected" || state === "pending" || state === "syncing") ? "" : "none";
+    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : (state === "error" || state === "sync-error") ? " error" : state === "pending" ? " pending" : state === "syncing" ? " syncing" : "");
+    dbxCheckBtn.style.display = (state === "connected" || state === "pending" || state === "syncing" || state === "sync-error") ? "" : "none";
     const lastSynced = relativeTime(Number(localStorage.getItem(LAST_SYNCED_KEY)) || 0);
     if (state === "connected") {
       dbxStatusText.textContent = "Dropbox connected" + (lastSynced ? ` · synced ${lastSynced}` : "");
@@ -1030,6 +1077,10 @@
       dbxStatusText.textContent = "Dropbox connected · syncing…";
       dbxBtn.textContent = "Disconnect";
       footerDbxNote.textContent = "Syncing to Dropbox now.";
+    } else if (state === "sync-error") {
+      dbxStatusText.textContent = detail || "Dropbox backup failed";
+      dbxBtn.textContent = "Disconnect";
+      footerDbxNote.textContent = "Still connected to Dropbox — the last backup attempt failed and will retry on your next edit or reload.";
     } else if (state === "error") {
       dbxStatusText.textContent = detail || "Dropbox session expired";
       dbxBtn.textContent = "Reconnect Dropbox";
@@ -1172,7 +1223,7 @@
       // rather than once per failed upload.
       if (failures.some((f) => handleDropboxAuthError(f.reason && f.reason.err))) return;
       failures.forEach((f) => console.error(`Dropbox backup failed for "${f.reason.project}":`, f.reason.err));
-      setDropboxUi("error", failures.length === toBackUp.length ? "Dropbox backup failed" : `Dropbox backup failed for ${failures.length} of ${toBackUp.length} projects`);
+      setDropboxUi("sync-error", failures.length === toBackUp.length ? "Dropbox backup failed" : `Dropbox backup failed for ${failures.length} of ${toBackUp.length} projects`);
     });
   }
 
@@ -1303,9 +1354,10 @@
       });
   }
 
-  dbxCheckBtn.addEventListener("click", () => discoverDropboxProjects(true));
+  dbxCheckBtn.addEventListener("click", () => { setDbxDropdown(false); discoverDropboxProjects(true); });
 
   dbxBtn.addEventListener("click", () => {
+    setDbxDropdown(false);
     if (dbx) disconnectDropbox();
     else dropboxLogin();
   });

@@ -6,7 +6,7 @@
 // so CACHE_NAME is bumped by hand; do that whenever a shipped file's content
 // changes, so the old cache is evicted on the next activate rather than
 // silently serving stale bytes forever. Mirrors Simple Gantt's sw.js.
-const CACHE_NAME = 'notebook-v0.11.0';
+const CACHE_NAME = 'notebook-v0.12.0';
 
 // Same-origin files only -- cache.addAll() fails the whole install if any
 // one fetch fails, and a transient CDN hiccup shouldn't block the service

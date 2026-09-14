@@ -110,10 +110,28 @@ test('clicking outside the editor with no changes closes it without asking', asy
   expect(dialogFired).toBe(false);
 });
 
+test('the Dropbox status/actions are consolidated behind one dropdown trigger, closed by default and toggleable', async ({ page }) => {
+  await page.goto('/index.html');
+
+  const dropdown = page.locator('#dbxDropdown');
+  await expect(dropdown).not.toHaveClass(/open/);
+  await expect(page.locator('#dbxBtn')).not.toBeVisible();
+
+  await page.click('#dbxMenuBtn');
+  await expect(dropdown).toHaveClass(/open/);
+  await expect(page.locator('#dbxBtn')).toBeVisible();
+  await expect(page.locator('#dbxMenuBtn')).toHaveAttribute('aria-expanded', 'true');
+
+  // Clicking elsewhere on the page closes it again.
+  await page.locator('#activeCount').click();
+  await expect(dropdown).not.toHaveClass(/open/);
+});
+
 test('Dropbox connect opens the explainer modal and links to the real OAuth authorize URL', async ({ page }) => {
   await page.goto('/index.html');
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox not connected');
 
+  await page.click('#dbxMenuBtn'); // opens the consolidated status/actions dropdown
   await page.click('#dbxBtn');
   await expect(page.locator('#dropboxInfoBackdrop')).toHaveClass(/active/);
 
@@ -131,6 +149,7 @@ test('Dropbox connect opens the explainer modal and links to the real OAuth auth
 
 test('Dropbox explainer modal can be dismissed without connecting', async ({ page }) => {
   await page.goto('/index.html');
+  await page.click('#dbxMenuBtn');
   await page.click('#dbxBtn');
   await expect(page.locator('#dropboxInfoBackdrop')).toHaveClass(/active/);
   await page.click('#dbxInfoCancel');
@@ -277,6 +296,14 @@ async function stubDropboxSdk(page) {
         this.filesUpload = (args) => {
           window.__uploads.push(args);
           const pathLower = args.path.toLowerCase();
+          // window.__uploadFailFor (set via addInitScript in a specific
+          // test) simulates a transient, non-auth failure (rate limiting, a
+          // network blip) for one path's upload, leaving every other
+          // project's upload in the same batch to succeed -- distinct from
+          // an expired-session (401) failure, which is covered separately.
+          if (window.__uploadFailFor && window.__uploadFailFor.includes(pathLower)) {
+            return Promise.reject({ status: 500, error: { error_summary: 'internal_error/...' } });
+          }
           const existing = window.__dbxFiles.find((f) => f.path_lower === pathLower);
           window.__dbxRevCounter = (window.__dbxRevCounter || 0) + 1;
           const rev = 'rev' + window.__dbxRevCounter;
@@ -466,6 +493,7 @@ test('importing a discovered project adds it locally, and it is not offered agai
   // Re-checking manually should find nothing new or changed now: the
   // imported project's fields match the Dropbox file byte-for-byte.
   page.once('dialog', (dialog) => dialog.accept());
+  await page.click('#dbxMenuBtn');
   await page.click('#dbxCheckBtn');
   await expect(page.locator('#dropboxDiscoveryBackdrop')).not.toHaveClass(/active/);
 });
@@ -483,6 +511,7 @@ test('editing a known project\'s file directly in Dropbox is detected as "change
     file.contents = '---\ntitle: "Kitchen Remodel"\nactive: true\nsortOrder: 1\n---\nEdited straight in Dropbox.\n';
   });
 
+  await page.click('#dbxMenuBtn');
   await page.click('#dbxCheckBtn');
 
   await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
@@ -502,6 +531,7 @@ test('confirming a change made directly in Dropbox updates the existing project 
     file.contents = '---\ntitle: "Kitchen Remodel"\nactive: true\nsortOrder: 1\n---\nEdited straight in Dropbox.\n';
   });
 
+  await page.click('#dbxMenuBtn');
   await page.click('#dbxCheckBtn');
   await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
   await page.click('#dbxDiscoveryImport');
@@ -552,6 +582,24 @@ test('the Dropbox dot pulses while a backup is in flight, and stops once it sett
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox connected · synced just now');
   await expect(page.locator('#dbxDot')).not.toHaveClass(/syncing/);
   await expect(page.locator('#dbxDot')).toHaveClass(/connected/);
+});
+
+test('a partial backup failure stays connected (Disconnect, not Reconnect) and names how many projects failed', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+  await page.addInitScript(() => { window.__uploadFailFor = ['/notebook projects/kitchen-remodel.md']; });
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+
+  await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox backup failed for 1 of 6 projects');
+  await expect(page.locator('#dbxDot')).toHaveClass(/error/);
+
+  // Still a live, connected session (unlike an actually expired one) -- the
+  // dropdown's action button must say Disconnect, not Reconnect, since dbx
+  // itself was never cleared and clicking it would call disconnectDropbox().
+  await page.click('#dbxMenuBtn');
+  await expect(page.locator('#dbxBtn')).toHaveText('Disconnect');
+  await expect(page.locator('#dbxCheckBtn')).toBeVisible();
 });
 
 test('onboarding sample projects are never backed up to Dropbox', async ({ page }) => {
