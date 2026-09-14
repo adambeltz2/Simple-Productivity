@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.5.1] - 2026-09-14
+
+### Fixed
+- Editing a project's `.md` file directly in Dropbox was invisible to
+  Notebook: discovery only ever checked for filenames it didn't already
+  know, never for changed content of a file whose name matched a known
+  project. "Check Dropbox" (and a fresh connect) now downloads and
+  compares every matching file's content too, and offers a changed one
+  through the same discovery checklist, tagged "changed" — applying it
+  updates that one project in place rather than duplicating it.
+
 ## [0.5.0] - 2026-09-14
 
 ### Changed

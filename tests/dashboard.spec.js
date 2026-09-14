@@ -259,11 +259,50 @@ test('importing a discovered project adds it locally, and it is not offered agai
   await expect(page.locator('.project-card', { hasText: 'Remote Only Project' })).toBeVisible();
   await expect(page.locator('#activeCount')).toHaveText('5 active');
 
-  // Re-checking manually should find nothing new now that it's known locally
-  // (its file was also just re-uploaded via saveProjects()'s auto-backup).
+  // Re-checking manually should find nothing new or changed now: the
+  // imported project's fields match the Dropbox file byte-for-byte.
   page.once('dialog', (dialog) => dialog.accept());
   await page.click('#dbxCheckBtn');
   await expect(page.locator('#dropboxDiscoveryBackdrop')).not.toHaveClass(/active/);
+});
+
+test('editing a known project\'s file directly in Dropbox is detected as "changed" on next check', async ({ page }) => {
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6); // initial connect push
+
+  // Simulate hand-editing Kitchen Remodel's file directly in Dropbox.
+  await page.evaluate(() => {
+    const file = window.__dbxFiles.find((f) => f.path_lower === '/notebook projects/kitchen-remodel.md');
+    file.contents = '---\ntitle: "Kitchen Remodel"\nactive: true\nsortOrder: 1\n---\nEdited straight in Dropbox.\n';
+  });
+
+  await page.click('#dbxCheckBtn');
+
+  await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
+  const row = page.locator('#dropboxDiscoveryList label', { hasText: 'Kitchen Remodel' });
+  await expect(row).toContainText('changed');
+});
+
+test('confirming a change made directly in Dropbox updates the existing project in place, not as a duplicate', async ({ page }) => {
+  await stubDropboxSdk(page);
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+
+  await page.evaluate(() => {
+    const file = window.__dbxFiles.find((f) => f.path_lower === '/notebook projects/kitchen-remodel.md');
+    file.contents = '---\ntitle: "Kitchen Remodel"\nactive: true\nsortOrder: 1\n---\nEdited straight in Dropbox.\n';
+  });
+
+  await page.click('#dbxCheckBtn');
+  await expect(page.locator('#dropboxDiscoveryBackdrop')).toHaveClass(/active/);
+  await page.click('#dbxDiscoveryImport');
+
+  await expect(page.locator('#activeCount')).toHaveText('4 active'); // unchanged -- no new project added
+  await expect(page.locator('.project-card', { hasText: 'Kitchen Remodel' })).toHaveCount(1); // not duplicated
+  await expect(page.locator('.project-card', { hasText: 'Edited straight in Dropbox.' })).toBeVisible();
 });
 
 test('edits are debounced before backing up, not pushed on every change', async ({ page }) => {
