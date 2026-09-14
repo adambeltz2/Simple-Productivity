@@ -310,7 +310,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.5.0";
+  const APP_VERSION = "0.5.1";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -1000,6 +1000,7 @@
       <label style="display:flex; align-items:center; gap:10px; padding:6px 2px;">
         <input type="checkbox" class="discovery-checkbox" value="${i}" checked>
         <span>${escapeHtml(c.title || "(untitled project)")}</span>
+        <span class="tag ${c.kind === "changed" ? "followup" : "task"}" style="margin-left:auto;">${c.kind === "changed" ? "changed" : "new"}</span>
       </label>`).join("");
     dropboxDiscoveryBackdrop.classList.add("active");
   }
@@ -1012,15 +1013,26 @@
     closeDiscoveryModal();
     if (!checked.length) return;
     const baseSortOrder = projects.reduce((max, p) => Math.max(max, p.sortOrder || 0), 0);
-    checked.forEach((c, i) => {
-      projects.push({
-        id: uid(),
-        title: c.title,
-        active: c.active,
-        sortOrder: baseSortOrder + i + 1,
-        body: c.body,
-        updatedAt: Date.now(),
-      });
+    let nextSortOrder = baseSortOrder + 1;
+    checked.forEach((c) => {
+      if (c.kind === "changed") {
+        const p = projects.find((x) => x.id === c.localId);
+        if (!p) return;
+        p.title = c.title;
+        p.active = c.active;
+        p.sortOrder = c.sortOrder;
+        p.body = c.body;
+        p.updatedAt = Date.now();
+      } else {
+        projects.push({
+          id: uid(),
+          title: c.title,
+          active: c.active,
+          sortOrder: nextSortOrder++,
+          body: c.body,
+          updatedAt: Date.now(),
+        });
+      }
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
     render();
@@ -1035,20 +1047,49 @@
   // also opens the login flow if not connected, and alerts when nothing
   // new is found). Never imports without the discovery modal's
   // confirmation.
+  function projectMatchesParsed(project, parsed) {
+    return (project.title || "") === (parsed.title || "")
+      && !!project.active === !!parsed.active
+      && (Number(project.sortOrder) || 0) === (Number(parsed.sortOrder) || 0)
+      && (project.body || "") === (parsed.body || "");
+  }
+
+  // Checks every .md file in DROPBOX_FOLDER against this browser's
+  // projects, in both directions: a file whose name doesn't match any
+  // known project is offered as new, and a file whose name DOES match a
+  // known project but whose content differs is offered as a change to
+  // pull in (this is what makes hand-editing a project's file directly in
+  // Dropbox actually visible here -- see CLAUDE.md #5). Either way, only
+  // ever offered via the discovery modal -- never applied silently.
   function discoverDropboxProjects(manualTrigger) {
     if (!dbx) { if (manualTrigger) dropboxLogin(); return; }
     listAllDropboxEntries(DROPBOX_FOLDER)
       .then((allEntries) => {
         const files = allEntries.filter((e) => e[".tag"] === "file" && e.name.toLowerCase().endsWith(".md"));
-        const knownNames = new Set(projects.map((p) => dropboxFileName(p)));
-        const candidates = files.filter((f) => !knownNames.has(f.name));
+        const filesByName = new Map(files.map((f) => [f.name, f]));
+        const newFiles = files.filter((f) => !projects.some((p) => dropboxFileName(p) === f.name));
+        const matchedProjects = projects.filter((p) => filesByName.has(dropboxFileName(p)));
 
-        if (!candidates.length) {
-          if (manualTrigger) alert("No additional Dropbox projects found beyond what's already in this browser.");
+        if (!newFiles.length && !matchedProjects.length) {
+          if (manualTrigger) alert("No Dropbox projects found yet.");
           return;
         }
 
-        Promise.all(candidates.map((f) => downloadProjectFile(f.path_lower))).then((found) => {
+        Promise.all([
+          Promise.all(newFiles.map((f) =>
+            downloadProjectFile(f.path_lower).then((parsed) => ({ kind: "new", ...parsed }))
+          )),
+          Promise.all(matchedProjects.map((p) =>
+            downloadProjectFile(filesByName.get(dropboxFileName(p)).path_lower).then((parsed) =>
+              projectMatchesParsed(p, parsed) ? null : { kind: "changed", localId: p.id, ...parsed }
+            )
+          )),
+        ]).then(([newFound, changedFound]) => {
+          const found = newFound.concat(changedFound.filter(Boolean));
+          if (!found.length) {
+            if (manualTrigger) alert("No additional or changed Dropbox projects found beyond what's already in this browser.");
+            return;
+          }
           openDiscoveryModal(found);
         });
       })

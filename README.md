@@ -105,12 +105,17 @@ rather than renamed (see `BACKLOG.md`).
 
 **On connect** (and on reconnecting after a session expires), two things
 happen right away: every local project is pushed to Dropbox, and Notebook
-checks for any `.md` file in that folder that isn't known to this browser
-yet (added directly in Dropbox, or synced from another device) — those are
-offered via a checklist, never imported silently.
+checks every `.md` file in that folder against what it already knows —
+both a file that doesn't match any known project (added directly in
+Dropbox, or synced from another device) **and** a file whose name matches
+a known project but whose content differs (hand-edited directly in
+Dropbox) are surfaced, tagged "new" or "changed" respectively, in one
+checklist. Nothing is ever imported or applied silently.
 
 **"Check Dropbox"** (topbar, once connected) re-runs that same check any
-time, e.g. after adding a project's `.md` file directly in Dropbox.
+time — this is how you see a change you just made directly in Dropbox
+show up here: edit the project's `.md` file in Dropbox, then click "Check
+Dropbox" (or just reconnect) and confirm it in the checklist that appears.
 
 **After an edit**, a backup is pushed automatically ~60 seconds after you
 stop editing (not on every keystroke) — the status text next to the
