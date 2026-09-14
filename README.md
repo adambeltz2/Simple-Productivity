@@ -14,12 +14,31 @@ no account required. Everything lives in this browser's `localStorage`.
 Dropbox is an optional, add-on backup/sync layer — never the source of
 truth.
 
-A dark mode toggle (top right, next to the Dropbox button) switches
-explicitly between light and dark and remembers your choice; it defaults to
-your OS preference the first time. Hovering the ⓘ next to "Projects" shows
-the task/follow-up syntax below as a quick reference. The note editor has a
-Write/Preview toggle that renders the markdown as you'd expect it to look,
-rather than only showing the raw source.
+## What it looks like
+
+The dashboard — active projects numbered and sorted your way, with
+Follow-ups and Tasks pulled out into their own rails on the right:
+
+![Dashboard, light mode](screenshots/dashboard-light.png)
+
+Dark mode is a real explicit toggle (top right), not just a system
+preference — it remembers your choice:
+
+![Dashboard, dark mode](screenshots/dashboard-dark.png)
+
+Each project is an editable markdown note, written plain:
+
+![Note editor, Write tab](screenshots/editor-write.png)
+
+...or rendered, via the editor's Write/Preview toggle — headings, bold,
+lists, task checkboxes, and `#followup` tags all shown as they'd actually
+read:
+
+![Note editor, Preview tab](screenshots/editor-preview.png)
+
+The dark mode toggle defaults to your OS preference the first time, then
+remembers whatever you pick. Hovering the ⓘ next to "Projects" shows the
+task/follow-up syntax as a quick reference.
 
 This is a sibling project to [Simple Gantt](https://github.com/adambeltz2/Simple-Gantt)
 and deliberately follows the same architecture: one static `index.html`,
