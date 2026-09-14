@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.10.0] - 2026-09-14
+
+### Added
+- Task due dates: a `#due:YYYY-MM-DD` tag on a task line (matching the
+  existing `#followup` hashtag convention, since no single universal
+  markdown syntax for due dates exists) is parsed out of the task's
+  displayed text and shown as a badge. The Tasks rail now sorts
+  soonest-due first, with undated tasks last, and flags an incomplete
+  task past its due date as overdue.
+
 ## [0.9.0] - 2026-09-14
 
 ### Added

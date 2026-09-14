@@ -120,6 +120,8 @@
   .rail-item .text { font-size: 0.83rem; line-height: 1.4; color: var(--ink); margin-bottom: 5px; }
   .rail-item .from { font-size: 0.68rem; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; background: none; border: none; padding: 0; text-align: left; }
   .rail-item .from:hover { color: var(--accent-ink); text-decoration: underline; }
+  .rail-item .due { display: inline-block; font-size: 0.68rem; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; margin-left: 8px; }
+  .rail-item .due.overdue { color: var(--danger); font-weight: 600; }
   .rail.followups .rail-item { border-left: 3px solid var(--followup); }
   .rail.tasks .rail-item { border-left: 3px solid var(--task); display: flex; gap: 8px; align-items: flex-start; }
   .rail.tasks .rail-item input { margin-top: 3px; accent-color: var(--task); flex-shrink: 0; }
@@ -196,7 +198,7 @@
   <div class="layout">
     <div>
       <div class="col-heading">
-        <h2>Projects <span class="info-icon" tabindex="0" title="Tasks: &#10;  - [ ] do the thing&#10;  - [x] done thing&#10;&#10;Follow-ups: add #followup anywhere on a line, e.g.&#10;  check back with someone #followup">ⓘ</span></h2>
+        <h2>Projects <span class="info-icon" tabindex="0" title="Tasks: &#10;  - [ ] do the thing&#10;  - [x] done thing&#10;&#10;Due dates: add #due:YYYY-MM-DD to a task line, e.g.&#10;  - [ ] do the thing #due:2026-09-20&#10;  (Tasks rail sorts soonest-due first; overdue ones are flagged.)&#10;&#10;Follow-ups: add #followup anywhere on a line, e.g.&#10;  check back with someone #followup">ⓘ</span></h2>
         <span class="n" id="projectsCount">0 total</span>
       </div>
       <div class="projects" id="projectsGrid"></div>
@@ -251,7 +253,7 @@
         </div>
         <textarea id="editBody" spellcheck="false"></textarea>
         <div class="markdown-preview" id="editPreview"></div>
-        <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
+        <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Due date: <code class="mono">- [ ] do the thing #due:2026-09-20</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">check back with someone #followup</code></div>
       </div>
       <div class="hint" id="versionRestoreHint" style="display:none; color:var(--accent-ink); font-weight:600;"></div>
       <div class="modal-actions">
@@ -334,13 +336,19 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.9.0";
+  const APP_VERSION = "0.10.0";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
   // Hashtag-style, so it reads like ordinary markdown/note-taking syntax:
   // "Chase legal for the redline #followup" or "#followup chase legal...".
   const FOLLOWUP_TAG_RE = /\s*#followup\b/i;
+  // Same hashtag convention as #followup -- no single markdown standard for
+  // task due dates exists (the closest things, the Obsidian Tasks plugin's
+  // emoji convention and Todoist's @date syntax, are neither universal nor
+  // simple to parse reliably), so this matches Notebook's own house style
+  // instead: "Order sample panel #due:2026-09-20", anywhere on a task line.
+  const DUE_TAG_RE = /\s*#due:(\d{4}-\d{2}-\d{2})\b/i;
 
   // Declared here (rather than down in the Dropbox section below) so it's
   // already initialized by the time saveProjects() -- which can run during
@@ -432,7 +440,14 @@
     lines.forEach((line, idx) => {
       const taskMatch = line.match(TASK_RE);
       if (taskMatch) {
-        tasks.push({ text: taskMatch[2].trim(), done: /x/i.test(taskMatch[1]), line: idx });
+        let text = taskMatch[2].trim();
+        let due = null;
+        const dueMatch = text.match(DUE_TAG_RE);
+        if (dueMatch) {
+          due = dueMatch[1];
+          text = text.replace(DUE_TAG_RE, "").trim();
+        }
+        tasks.push({ text, done: /x/i.test(taskMatch[1]), line: idx, due });
         return;
       }
       if (FOLLOWUP_TAG_RE.test(line)) {
@@ -495,6 +510,7 @@
       html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
       html = html.replace(/(^|[^\w])_([^_]+)_(?=$|[^\w])/g, "$1<em>$2</em>");
       html = html.replace(/#followup\b/gi, '<span class="followup-tag">#followup</span>');
+      html = html.replace(/#due:\d{4}-\d{2}-\d{2}\b/gi, (m) => `<span class="followup-tag">${m}</span>`);
       return html;
     });
 
@@ -553,6 +569,20 @@
   function formatUpdated(ts) {
     const rel = relativeTime(ts);
     return rel ? `updated ${rel}` : "";
+  }
+
+  // today's date as YYYY-MM-DD (local time), for comparing against a
+  // task's #due:YYYY-MM-DD tag without any timezone-shifting Date math.
+  function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  function formatDueDate(due) {
+    const d = new Date(due + "T00:00:00");
+    const opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
   }
 
   // ======================================================================
@@ -648,6 +678,16 @@
     const filteredFollowups = query ? allFollowups.filter((f) => f.text.toLowerCase().includes(query)) : allFollowups;
     const filteredTasks = query ? allTasks.filter((t) => t.text.toLowerCase().includes(query)) : allTasks;
 
+    // Due first, earliest due date first; undated tasks sort after every
+    // dated one. Array#sort is stable, so tasks that tie (both undated, or
+    // the same due date) keep their original project/line order.
+    filteredTasks.sort((a, b) => {
+      if (a.due && b.due) return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+      if (a.due) return -1;
+      if (b.due) return 1;
+      return 0;
+    });
+
     followupsCountEl.textContent = String(filteredFollowups.length);
     tasksCountEl.textContent = String(filteredTasks.length);
 
@@ -659,12 +699,17 @@
         </div>`).join("")
       : `<div class="rail-empty">Nothing to follow up on.</div>`;
 
+    const today = todayStr();
     tasksList.innerHTML = filteredTasks.length
-      ? filteredTasks.map((t, i) => `
+      ? filteredTasks.map((t, i) => {
+          const overdue = t.due && !t.done && t.due < today;
+          const dueBadge = t.due ? `<span class="due ${overdue ? "overdue" : ""}">${overdue ? "Overdue" : "Due"} ${formatDueDate(t.due)}</span>` : "";
+          return `
         <div class="rail-item ${t.done ? "done" : ""}" data-project="${t.projectId}" data-line="${t.line}">
           <input type="checkbox" ${t.done ? "checked" : ""} id="task-${i}" />
-          <div><div class="text">${escapeHtml(t.text)}</div><button type="button" class="from" data-id="${t.projectId}">${escapeHtml(t.projectTitle)}</button></div>
-        </div>`).join("")
+          <div><div class="text">${escapeHtml(t.text)}</div><button type="button" class="from" data-id="${t.projectId}">${escapeHtml(t.projectTitle)}</button>${dueBadge}</div>
+        </div>`;
+        }).join("")
       : `<div class="rail-empty">No open tasks.</div>`;
 
     followupsList.querySelectorAll(".from").forEach((btn) => btn.addEventListener("click", () => openEditor(btn.dataset.id)));
