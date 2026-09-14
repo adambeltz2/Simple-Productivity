@@ -14,6 +14,11 @@ no account required. Everything lives in this browser's `localStorage`.
 Dropbox is an optional, add-on backup/sync layer — never the source of
 truth.
 
+**Installable PWA:** add it to your home screen or desktop from a browser
+tab; a service worker (`sw.js`) caches the app shell so it keeps working,
+including on a repeat visit with no connection, after the first successful
+load.
+
 ## What it looks like
 
 The dashboard — active projects numbered and sorted your way, with

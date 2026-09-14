@@ -27,6 +27,7 @@ jobs:
           cp index.html _site/index.html
           if [ -d icons ]; then cp -r icons _site/icons; fi
           if [ -f manifest.json ]; then cp manifest.json _site/manifest.json; fi
+          if [ -f sw.js ]; then cp sw.js _site/sw.js; fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
