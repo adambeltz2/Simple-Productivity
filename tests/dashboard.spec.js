@@ -44,6 +44,35 @@ test('creating a project shows up numbered on the dashboard', async ({ page }) =
   await expect(page.locator('#activeCount')).toHaveText('5 active');
 });
 
+test('clicking outside the editor with unsaved changes asks for confirmation instead of silently discarding them', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.click('.project-card >> nth=0');
+  await page.fill('#editTitle', 'Changed Title Not Yet Saved');
+
+  let dialogMessage = '';
+  page.once('dialog', (dialog) => { dialogMessage = dialog.message(); dialog.dismiss(); });
+  await page.locator('#editorBackdrop').click({ position: { x: 5, y: 5 } }); // backdrop, not the modal itself
+  expect(dialogMessage).toContain('Discard unsaved changes');
+  // Dismissing the confirm leaves the editor open with the edit intact.
+  await expect(page.locator('#editorBackdrop')).toHaveClass(/active/);
+  await expect(page.locator('#editTitle')).toHaveValue('Changed Title Not Yet Saved');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#editorBackdrop').click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('#editorBackdrop')).not.toHaveClass(/active/);
+});
+
+test('clicking outside the editor with no changes closes it without asking', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.click('.project-card >> nth=0');
+
+  let dialogFired = false;
+  page.on('dialog', () => { dialogFired = true; });
+  await page.locator('#editorBackdrop').click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('#editorBackdrop')).not.toHaveClass(/active/);
+  expect(dialogFired).toBe(false);
+});
+
 test('Dropbox connect opens the explainer modal and links to the real OAuth authorize URL', async ({ page }) => {
   await page.goto('/index.html');
   await expect(page.locator('#dbxStatusText')).toHaveText('Dropbox not connected');
@@ -183,6 +212,16 @@ async function stubDropboxSdk(page) {
         this.filesUpload = (args) => {
           window.__uploads.push(args);
           const pathLower = args.path.toLowerCase();
+          const existing = window.__dbxFiles.find((f) => f.path_lower === pathLower);
+          window.__dbxRevCounter = (window.__dbxRevCounter || 0) + 1;
+          const rev = 'rev' + window.__dbxRevCounter;
+          const now = new Date().toISOString();
+          // Real Dropbox keeps every prior upload to a path as a revision,
+          // newest first, current version included -- mirrored here as a
+          // small history array carried forward on each overwrite so
+          // filesListRevisions()/filesDownload-by-rev have something real
+          // to read, without ever exposing this as a second file on disk.
+          const revisions = [{ rev, server_modified: now, contents: args.contents }].concat(existing ? (existing.revisions || []) : []).slice(0, 10);
           // mode: 'overwrite' replaces the file at this exact path in place,
           // matching real Dropbox -- without this, repeated backups to the
           // same stable filename would pile up as duplicate entries here.
@@ -190,8 +229,10 @@ async function stubDropboxSdk(page) {
           window.__dbxFiles.push({
             path_lower: pathLower,
             name: args.path.split('/').pop(),
-            client_modified: new Date().toISOString(),
+            client_modified: now,
             contents: args.contents,
+            rev,
+            revisions,
           });
           // window.__uploadDelayMs (set via addInitScript in a specific
           // test) lets a test observe the in-flight "syncing" state, which
@@ -206,9 +247,23 @@ async function stubDropboxSdk(page) {
         };
         this.filesListFolderContinue = () => Promise.resolve({ result: { entries: [], has_more: false } });
         this.filesDownload = (args) => {
-          const file = window.__dbxFiles.find((f) => f.path_lower === args.path.toLowerCase());
-          const blob = new Blob([file ? file.contents : ''], { type: 'text/markdown' });
+          const byPath = window.__dbxFiles.find((f) => f.path_lower === (args.path || '').toLowerCase());
+          let contents = byPath ? byPath.contents : null;
+          if (contents === null) {
+            // Not a path -- try matching a rev id directly, exactly as real
+            // Dropbox's filesDownload accepts a revision id as `path` too.
+            for (const f of window.__dbxFiles) {
+              const found = (f.revisions || []).find((r) => r.rev === args.path);
+              if (found) { contents = found.contents; break; }
+            }
+          }
+          const blob = new Blob([contents || ''], { type: 'text/markdown' });
           return Promise.resolve({ result: { fileBlob: blob } });
+        };
+        this.filesListRevisions = (args) => {
+          const file = window.__dbxFiles.find((f) => f.path_lower === (args.path || '').toLowerCase());
+          if (!file) return Promise.reject({ error: { error_summary: 'path/not_found/...' }, status: 409 });
+          return Promise.resolve({ result: { entries: file.revisions || [] } });
         };
         this.filesDeleteV2 = (args) => {
           window.__deletes.push(args.path);
@@ -497,6 +552,73 @@ test('deleting a project also deletes its file from Dropbox when connected', asy
   await expect.poll(() => page.evaluate(() => window.__deletes.length)).toBe(1);
   expect(await page.evaluate(() => window.__deletes[0])).toBe('/Notebook Projects/kitchen-remodel.md');
   expect(await page.evaluate(() => window.__dbxFiles.some((f) => f.path_lower === '/notebook projects/kitchen-remodel.md'))).toBe(false);
+});
+
+const KITCHEN_REMODEL_ORIGINAL_BODY = realProjectsFixture()[0].body;
+const KITCHEN_REMODEL_UPDATED_BODY = KITCHEN_REMODEL_ORIGINAL_BODY + '\nGranite countertop guy called back, quoting Thursday.\n';
+
+test('version history lists Dropbox\'s own revisions and restoring one loads it into the editor without saving yet', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+  await page.clock.install();
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6); // initial connect push -- rev1 for every project
+
+  // Edit the body only (not the title) so the Dropbox filename -- and thus
+  // the path this revision history lives under -- stays the same.
+  await page.click('.project-card >> nth=0'); // Kitchen Remodel
+  await page.fill('#editBody', KITCHEN_REMODEL_UPDATED_BODY);
+  await page.click('#saveProjectBtn');
+  await page.clock.fastForward(15000); // debounced backup fires -- rev2 for kitchen-remodel.md
+
+  await page.click('.project-card >> nth=0');
+  await page.click('#versionHistoryBtn');
+  await expect(page.locator('#dropboxHistoryList .rail-item')).toHaveCount(2);
+  await expect(page.locator('#dropboxHistoryList .rail-item').first()).toContainText('most recent');
+
+  // Restore the older (original) revision.
+  await page.locator('#dropboxHistoryList .rail-item').nth(1).locator('button').click();
+
+  await expect(page.locator('#dropboxHistoryBackdrop')).not.toHaveClass(/active/);
+  await expect(page.locator('#editBody')).toHaveValue(KITCHEN_REMODEL_ORIGINAL_BODY);
+  await expect(page.locator('#versionRestoreHint')).toBeVisible();
+  await expect(page.locator('#versionRestoreHint')).toContainText('Save to keep it');
+
+  // Nothing applied to the actual project yet -- discard the preview and
+  // confirm the dashboard still shows the (unrestored) current content.
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.click('#cancelEditBtn');
+  await page.click('.project-card >> nth=0');
+  await expect(page.locator('#editBody')).toHaveValue(KITCHEN_REMODEL_UPDATED_BODY);
+});
+
+test('saving a restored version applies it and re-syncs to Dropbox', async ({ page }) => {
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+  await page.clock.install();
+
+  await page.goto('/index.html#access_token=fake-test-token&token_type=bearer');
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+
+  await page.click('.project-card >> nth=0');
+  await page.fill('#editBody', KITCHEN_REMODEL_UPDATED_BODY);
+  await page.click('#saveProjectBtn');
+  await page.clock.fastForward(15000);
+
+  await page.click('.project-card >> nth=0');
+  await page.click('#versionHistoryBtn');
+  await page.locator('#dropboxHistoryList .rail-item').nth(1).locator('button').click(); // restore the original
+  await expect(page.locator('#editBody')).toHaveValue(KITCHEN_REMODEL_ORIGINAL_BODY);
+
+  await page.click('#saveProjectBtn');
+  await page.click('.project-card >> nth=0');
+  await expect(page.locator('#editBody')).toHaveValue(KITCHEN_REMODEL_ORIGINAL_BODY);
+  await page.click('#cancelEditBtn'); // no unsaved changes at this point -- no confirm dialog expected
+
+  // Two saves so far: the initial edit (6 uploads) and the restore (6 more), on top of the 6-upload connect push.
+  await page.clock.fastForward(15000);
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(18);
 });
 
 test('note preview falls back to body content (not "(empty note)") when the only prose line is a heading and the project has an explicit title', async ({ page }) => {
