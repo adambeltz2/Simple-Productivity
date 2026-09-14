@@ -3,27 +3,34 @@
 Deferred features, bugs, and debt, per `CLAUDE.md` §4. Tags: `[BUG]`,
 `[FEATURE]`, `[REFACTOR]`, `[DEBT]`.
 
-- `[FEATURE]` Dropbox restore UI: list/preview available backups and let
-  the user pull one down, mirroring Simple Gantt's "Projects found in
-  Dropbox" flow. Right now only backup (upload) is wired up. _Affected:
-  `index.html`._
-- `[FEATURE]` Auto-backup to Dropbox on a debounce after edits, instead of
-  requiring a manual trigger, once restore exists (auto-backup without
-  restore risks masking data loss). _Affected: `index.html`._
-- `[FEATURE]` Multi-device conflict handling for the Dropbox backup file —
-  today `backupToDropbox()` always overwrites
-  `/Notebook Backups/notebook.json`, which is fine for a single-device
-  backup but would silently clobber a second device's notes. _Affected:
-  `index.html`._
-- `[FEATURE]` Rich markdown rendering in the note editor (currently a plain
-  textarea) — at least a preview pane, ideally inline formatting.
-  _Affected: `index.html`._
+- `[FEATURE]` "Export all": zip up every project as its own latest `.md`
+  file (frontmatter for `title`/`active`/`sortOrder` + the markdown body,
+  matching the note format documented in README.md) and download it as one
+  `.zip`, so a user's data is portable outside Dropbox too. The browser has
+  no native zip capability, so this is the one place a new CDN dependency
+  is likely justified per `CLAUDE.md` §5 (e.g. a pinned, SRI-hashed
+  `JSZip` build) — check first whether it can be done without one (a
+  hand-rolled minimal zip writer, no compression) before reaching for a
+  library. Triggering a save of the generated blob also needs a real
+  `<a download>` click, which only works for an end user in the deployed
+  app, not inside an Artifact preview. _Affected: `index.html`._
 - `[FEATURE]` PWA support (manifest.json, service worker, app icons),
   matching Simple Gantt's `manifest.json` + `sw.js` + `icons/` pattern.
   _Affected: new `manifest.json`, `sw.js`, `icons/`._
 - `[FEATURE]` CSV/JSON export-import of all projects, as a portable
   interchange format independent of Dropbox (matches Simple Gantt's CSV
   round-trip). _Affected: `index.html`._
+- `[DEBT]` No merge across devices: each Dropbox backup is a full
+  per-project snapshot (see README.md's Dropbox section), and restoring one
+  via "Dropbox history" always fully replaces that project's local state.
+  Versioned snapshots mean an overwrite is always recoverable, but two
+  devices editing the *same* project between backups still can't have their
+  changes combined automatically. _Affected: `index.html`._
+- `[DEBT]` `performDropboxBackup()` re-uploads every local project on each
+  auto-backup, even ones that haven't changed since the last one — fine at
+  personal-notebook scale, but wasteful as the project count grows. Track
+  a per-project dirty flag (or a body hash) and only back up what actually
+  changed. _Affected: `index.html`._
 - `[DEBT]` Search is a plain substring match over title/body; consider a
   lightweight fuzzy/ranked index (still client-side, still zero
   dependencies unless one is clearly justified per `CLAUDE.md` §5) once the

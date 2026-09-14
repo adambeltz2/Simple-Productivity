@@ -17,7 +17,9 @@ truth.
 A dark mode toggle (top right, next to the Dropbox button) switches
 explicitly between light and dark and remembers your choice; it defaults to
 your OS preference the first time. Hovering the ⓘ next to "Projects" shows
-the task/follow-up syntax below as a quick reference.
+the task/follow-up syntax below as a quick reference. The note editor has a
+Write/Preview toggle that renders the markdown as you'd expect it to look,
+rather than only showing the raw source.
 
 This is a sibling project to [Simple Gantt](https://github.com/adambeltz2/Simple-Gantt)
 and deliberately follows the same architecture: one static `index.html`,
@@ -37,8 +39,31 @@ npx http-server -p 4173 .
 
 ## Note format
 
-Each project is stored as a title, an `active` flag, a `sortOrder`, and a
-markdown `body`. Within the body:
+Each project is a title, an `active` flag, a `sortOrder`, and a markdown
+`body`. **Every project is its own file the moment it leaves the browser** —
+this is deliberate: Dropbox sync (below) represents each project as its own
+individual `.md` file, with frontmatter for `title`/`active`/`sortOrder`
+above the body, e.g.:
+
+```markdown
+---
+title: "Kitchen Remodel"
+active: true
+sortOrder: 1
+---
+Cabinet quote came in at $14,200. Need to confirm with Dana before signing
+off on the oak finish vs walnut.
+
+- [ ] Order walnut sample panel
+- Confirm oak vs walnut finish with Dana #followup
+```
+
+That means a project's note can be edited directly in Dropbox, or downloaded
+and edited in any text editor and re-uploaded — Notebook detects it and
+offers to pull it in (see "Dropbox sync" below), without touching any other
+project.
+
+Within the body:
 
 - **Tasks** use standard markdown checkbox syntax:
   ```markdown
@@ -66,13 +91,35 @@ Dropbox is connected: a scoped app is registered in the [Dropbox App Console](ht
 with its redirect URI set to this app's deployed URL, and its **app key**
 (never the app secret — this is a static SPA with no server to keep a
 secret on, so the OAuth2 implicit grant is used instead) is set as
-`DROPBOX_APP_KEY` in `index.html`.
+`DROPBOX_APP_KEY` in `index.html`. This browser's `localStorage` remains
+authoritative; Dropbox is only ever a copy, and nothing is ever pulled in
+from it without an explicit confirmation.
 
-Clicking "Connect Dropbox" backs up the full project list as JSON to
-`/Notebook Backups/notebook.json` in the user's Dropbox. This browser's
-`localStorage` remains authoritative; Dropbox is only ever a copy. See
-`BACKLOG.md` for the remaining Dropbox work (restore UI, auto-backup,
-multi-device conflict handling).
+**Layout in Dropbox:** `/Notebook Projects/<id>/<timestamp>.md`, one folder
+per project (`<id>` is an internal id, stable even if you rename the
+project), one timestamped snapshot file per backup. Notebook keeps each
+project's most recent 25 backups and prunes older ones automatically.
+
+**On connect** (and on reconnecting after a session expires), two things
+happen right away: every local project is pushed to Dropbox, and Notebook
+checks for any project that exists in Dropbox but isn't known to this
+browser yet (added directly in Dropbox, or synced from another device) —
+those are offered via a checklist, never imported silently.
+
+**"Check Dropbox"** (topbar, once connected) re-runs that same check any
+time, e.g. after adding a project's `.md` file directly in Dropbox.
+
+**"Dropbox history"** (inside a project's editor) lists that one project's
+kept snapshots and lets you restore any of them back into it — restoring
+only ever touches that single project.
+
+**After an edit**, a backup is pushed automatically ~60 seconds after you
+stop editing (not on every keystroke) — the status text next to the
+Dropbox button shows "backup pending" / "backing up…" / connected.
+
+See `BACKLOG.md` for what's still open (every project is re-uploaded on
+each auto-backup even if only one changed; cross-device conflict handling
+for edits to the *same* project between backups).
 
 ## Versioning
 
