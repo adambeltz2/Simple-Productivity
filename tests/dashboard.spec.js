@@ -235,6 +235,21 @@ test('connecting pushes every local project to Dropbox as its own flat file, nam
   expect(paths).toContain('/Notebook Projects/kitchen-remodel.md');
 });
 
+test('resuming an already-connected session (no OAuth hash) still catches up any unsynced local data', async ({ page }) => {
+  // Simulates the common case this fixes: Dropbox was connected in an
+  // earlier session (token already in localStorage), an edit's 60s
+  // debounce never got to fire before the tab closed, and the app is now
+  // just being reopened normally -- a plain load, no #access_token hash.
+  await seedRealProjects(page);
+  await stubDropboxSdk(page);
+  await page.addInitScript(() => localStorage.setItem('dropbox_token', 'fake-existing-token'));
+
+  await page.goto('/index.html'); // no hash -- an ordinary reload, not a fresh authenticate
+
+  await expect(page.locator('#dbxStatusText')).toHaveText(/^Dropbox connected/);
+  await expect.poll(() => page.evaluate(() => window.__uploads.length)).toBe(6);
+});
+
 test('re-backing up a renamed project renames its Dropbox file, deleting the stale one', async ({ page }) => {
   // performDropboxBackup() tracks each project's actual last-synced
   // filename (project.dropboxFile) precisely so a title change can be
@@ -389,7 +404,7 @@ test('edits are debounced before backing up, not pushed on every change', async 
   // No new uploads yet -- the edit's backup hasn't fired.
   expect(await page.evaluate(() => window.__uploads.length)).toBe(6);
 
-  await page.clock.fastForward(60000);
+  await page.clock.fastForward(15000);
   await expect(page.locator('#dbxStatusText')).toHaveText(/^Dropbox connected/);
   // One more push of all 6 projects (performDropboxBackup backs up everything, not just the edited one).
   expect(await page.evaluate(() => window.__uploads.length)).toBe(12);
@@ -515,7 +530,18 @@ test('dashboard preview keeps separate body lines on separate lines, not run tog
   await page.click('#saveProjectBtn');
 
   const card = page.locator('.project-card', { hasText: 'A' }).last();
-  await expect(card.locator('.project-preview')).toHaveText('Note 1\nNote 2');
+  await expect(card.locator('.project-preview')).toHaveText('File 1\nNote 1\nNote 2');
+});
+
+test('note preview leads with a meaningful heading instead of a weak trailing prose line when tasks/follow-ups consume everything else', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.click('#newProjectBtn');
+  await page.fill('#editTitle', 'MDM: Product');
+  await page.fill('#editBody', '# 9/14/2026\n- [ ] Task 1\n- [ ] Task 2 #followup\n\n- Notes #followup\nfile\n');
+  await page.click('#saveProjectBtn');
+
+  const card = page.locator('.project-card', { hasText: 'MDM: Product' });
+  await expect(card.locator('.project-preview')).toHaveText('9/14/2026\nfile');
 });
 
 test('the editor\'s Preview tab renders markdown instead of raw source', async ({ page }) => {

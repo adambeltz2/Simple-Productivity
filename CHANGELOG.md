@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.8.0] - 2026-09-14
+
+### Fixed
+- Dashboard note previews could show a weak, uninformative trailing line
+  (e.g. a lone "file" note left over after tasks and follow-ups were pulled
+  out) instead of a more meaningful heading the note also had (e.g.
+  "9/14/2026") whenever the project had its own explicit title — the
+  heading was previously discarded once any other prose line existed.
+  `deriveFromBody()` now always leads the preview with that heading when it
+  differs from the title, filling any remaining preview lines with prose.
+- `initDropboxFromRedirect()` only pushed/checked Dropbox right after a
+  fresh OAuth (re)authenticate, never on a plain reload with an
+  already-saved token. If an edit's auto-backup debounce never fired (the
+  tab closed first), that edit could sit unsynced in `localStorage`
+  indefinitely. Resuming an already-connected session on an ordinary reload
+  now always pushes a catch-up backup too.
+
+### Changed
+- Shortened the auto-backup debounce from 60 seconds to 15: "Dropbox
+  connected · backup pending" no longer lingers for a full minute after an
+  edit (or a task toggle) before a backup actually goes out.
+
 ## [0.7.0] - 2026-09-14
 
 ### Added

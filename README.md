@@ -141,7 +141,7 @@ time — this is how you see a change you just made directly in Dropbox
 show up here: edit the project's `.md` file in Dropbox, then click "Check
 Dropbox" (or just reconnect) and confirm it in the checklist that appears.
 
-**After an edit**, a backup is pushed automatically ~60 seconds after you
+**After an edit**, a backup is pushed automatically ~15 seconds after you
 stop editing (not on every keystroke). The dot next to the Dropbox button
 and the status text both track exactly what's happening: an idle amber dot
 + "backup pending" while waiting out the debounce, a pulsing amber dot +
