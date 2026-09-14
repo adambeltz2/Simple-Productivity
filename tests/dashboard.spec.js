@@ -33,6 +33,43 @@ test('toggling a task checkbox persists into the note body', async ({ page }) =>
   await expect(reloadedCheckbox).toBeChecked();
 });
 
+function isoDateOffset(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+test('tasks with a #due: tag are stripped of the tag, sorted soonest-first, and an overdue one is flagged', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.click('#newProjectBtn');
+  const overdue = isoDateOffset(-2);
+  const soon = isoDateOffset(1);
+  const later = isoDateOffset(10);
+  await page.fill('#editTitle', 'Due Date Test');
+  await page.fill('#editBody', [
+    `- [ ] No due date task`,
+    `- [ ] Later task #due:${later}`,
+    `- [ ] Overdue task #due:${overdue}`,
+    `- [ ] Soon task #due:${soon}`,
+  ].join('\n'));
+  await page.click('#saveProjectBtn');
+
+  // Scoped to this project's own rows -- the default seeded sample
+  // projects also contribute tasks to #tasksList.
+  const rows = page.locator('#tasksList .rail-item', { hasText: 'Due Date Test' });
+  await expect(rows).toHaveCount(4);
+  // Overdue first, then soonest-due, then later, undated last -- the tag
+  // itself is stripped from the visible task text.
+  await expect(rows.nth(0).locator('.text')).toHaveText('Overdue task');
+  await expect(rows.nth(0).locator('.due')).toHaveClass(/overdue/);
+  await expect(rows.nth(0).locator('.due')).toContainText('Overdue');
+  await expect(rows.nth(1).locator('.text')).toHaveText('Soon task');
+  await expect(rows.nth(1).locator('.due')).not.toHaveClass(/overdue/);
+  await expect(rows.nth(2).locator('.text')).toHaveText('Later task');
+  await expect(rows.nth(3).locator('.text')).toHaveText('No due date task');
+  await expect(rows.nth(3).locator('.due')).toHaveCount(0);
+});
+
 test('creating a project shows up numbered on the dashboard', async ({ page }) => {
   await page.goto('/index.html');
   await page.click('#newProjectBtn');

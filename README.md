@@ -89,6 +89,16 @@ Within the body:
   - [ ] Order walnut sample panel
   - [x] Email accountant re: missing 1099
   ```
+- **Due dates** use a `#due:YYYY-MM-DD` tag on a task line:
+  ```markdown
+  - [ ] Order walnut sample panel #due:2026-09-20
+  ```
+  There's no single universal markdown convention for this (the closest
+  things — the Obsidian Tasks plugin's emoji syntax, Todoist's `@date` — are
+  neither universal nor simple to parse reliably), so this matches
+  Notebook's own `#followup` house style instead. The Tasks rail sorts
+  soonest-due first, with undated tasks last; an incomplete task past its
+  due date is flagged as overdue.
 - **Follow-ups** use a hashtag, anywhere on the line:
   ```markdown
   - Confirm oak vs walnut finish with Dana #followup
