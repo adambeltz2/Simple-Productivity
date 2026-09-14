@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notebook</title>
+<meta name="description" content="A local-first dashboard of markdown project notes, with tasks and follow-ups pulled out automatically." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<!-- Dropbox SDK: optional backup/sync layer. Pinned exact version + real SRI hash (same release Simple Gantt ships), per CLAUDE.md #5. -->
+<script src="https://cdn.jsdelivr.net/npm/dropbox@10.34.0/dist/Dropbox-sdk.min.js" integrity="sha384-YWkd65tkMrhoUmJnjCxyrQASvTgA80dRkNv1iltGzS5KgwXnxYEhNC0hO7jjWkZe" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #eeede6;
+    --surface: #fbfaf6;
+    --surface-raised: #ffffff;
+    --ink: #23261f;
+    --ink-dim: #63665c;
+    --ink-faint: #93958a;
+    --line: #dad8cd;
+    --accent: #3d6b52;
+    --accent-soft: #e2ebe2;
+    --accent-ink: #234533;
+    --task: #a15a2a;
+    --task-soft: #f3e6d8;
+    --followup: #4a5a8a;
+    --followup-soft: #e4e7f2;
+    --danger: #b3432f;
+    --shadow: 0 1px 2px rgba(35,38,31,0.06), 0 4px 14px rgba(35,38,31,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #191b17; --surface: #21231e; --surface-raised: #262922;
+      --ink: #eae8de; --ink-dim: #a4a598; --ink-faint: #6f7166; --line: #34362d;
+      --accent: #7fb894; --accent-soft: #263229; --accent-ink: #a9d6b8;
+      --task: #d99b62; --task-soft: #332920; --followup: #9aa6d9; --followup-soft: #262a3a;
+      --danger: #e0836f;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 18px rgba(0,0,0,0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #191b17; --surface: #21231e; --surface-raised: #262922;
+    --ink: #eae8de; --ink-dim: #a4a598; --ink-faint: #6f7166; --line: #34362d;
+    --accent: #7fb894; --accent-soft: #263229; --accent-ink: #a9d6b8;
+    --task: #d99b62; --task-soft: #332920; --followup: #9aa6d9; --followup-soft: #262a3a;
+    --danger: #e0836f;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 18px rgba(0,0,0,0.25);
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    padding: 24px 20px 60px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1, h2, h3 { font-family: 'Fraunces', Georgia, serif; text-wrap: balance; margin: 0; }
+  code, .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  button { font-family: inherit; cursor: pointer; }
+  a { color: var(--accent-ink); }
+
+  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+  .brand h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; }
+  .brand .count { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--accent-ink); background: var(--accent-soft); border: 1px solid var(--line); padding: 3px 9px; border-radius: 999px; }
+  .search { flex: 1; min-width: 200px; position: relative; }
+  .search input { width: 100%; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 10px 38px; font-size: 0.9rem; font-family: inherit; color: var(--ink); }
+  .search input::placeholder { color: var(--ink-faint); }
+  .search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
+  .topbar-actions { display: flex; align-items: center; gap: 10px; }
+  .btn { border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink); border-radius: 8px; padding: 9px 14px; font-size: 0.82rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.subtle { background: transparent; border-color: transparent; color: var(--ink-dim); padding: 9px 10px; }
+  .dbx-status { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: var(--ink-dim); }
+  .dbx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); flex-shrink: 0; }
+  .dbx-dot.connected { background: var(--accent); }
+  .dbx-dot.error { background: var(--danger); }
+
+  .layout { display: grid; grid-template-columns: 1fr 220px 260px; gap: 22px; align-items: start; }
+  @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
+
+  .col-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .col-heading h2 { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+  .col-heading .n { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-faint); }
+
+  .projects { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  @media (max-width: 620px) { .projects { grid-template-columns: 1fr; } }
+
+  .project-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 9px; min-height: 150px; text-align: left; width: 100%; }
+  .project-card:hover { border-color: var(--accent); }
+  .project-card .row1 { display: flex; align-items: flex-start; gap: 10px; }
+  .project-num { font-family: 'Fraunces', serif; font-weight: 500; font-size: 1.5rem; color: var(--accent); line-height: 1; min-width: 1.4em; }
+  .project-title { font-size: 1.02rem; font-weight: 600; line-height: 1.25; color: var(--ink); }
+  .project-meta { font-size: 0.72rem; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; }
+  .project-preview { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .project-tags { display: flex; gap: 6px; margin-top: auto; flex-wrap: wrap; }
+  .tag { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
+  .tag.task { background: var(--task-soft); color: var(--task); }
+  .tag.followup { background: var(--followup-soft); color: var(--followup); }
+  .project-card.inactive { opacity: 0.55; }
+  .project-card.inactive .project-num { color: var(--ink-faint); }
+  .no-results { grid-column: 1 / -1; text-align: center; padding: 30px 10px; color: var(--ink-faint); font-size: 0.85rem; }
+
+  .toggle-inactive { grid-column: 1 / -1; text-align: center; padding: 10px; font-size: 0.78rem; color: var(--ink-dim); border: 1px dashed var(--line); border-radius: 10px; background: transparent; }
+  .toggle-inactive:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+  .rail { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; }
+  .rail-item { border-radius: 9px; padding: 9px 10px; background: var(--surface-raised); border: 1px solid var(--line); }
+  .rail-item .text { font-size: 0.83rem; line-height: 1.4; color: var(--ink); margin-bottom: 5px; }
+  .rail-item .from { font-size: 0.68rem; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; background: none; border: none; padding: 0; text-align: left; }
+  .rail-item .from:hover { color: var(--accent-ink); text-decoration: underline; }
+  .rail.followups .rail-item { border-left: 3px solid var(--followup); }
+  .rail.tasks .rail-item { border-left: 3px solid var(--task); display: flex; gap: 8px; align-items: flex-start; }
+  .rail.tasks .rail-item input { margin-top: 3px; accent-color: var(--task); flex-shrink: 0; }
+  .rail.tasks .rail-item.done .text { text-decoration: line-through; color: var(--ink-faint); }
+  .rail-empty { font-size: 0.8rem; color: var(--ink-faint); padding: 6px 2px; }
+
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 0.75rem; color: var(--ink-faint); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* ---------- Modals ---------- */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(20,20,16,0.45); align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+  .modal-backdrop.active { display: flex; }
+  .modal { background: var(--surface-raised); border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); width: 100%; max-width: 620px; max-height: 88vh; overflow-y: auto; padding: 22px; }
+  .modal h2 { font-size: 1.25rem; margin-bottom: 14px; }
+  .modal .field { margin-bottom: 14px; }
+  .modal label { display: block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px; }
+  .modal input[type="text"], .modal input[type="number"], .modal textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+    font-family: inherit; font-size: 0.9rem; color: var(--ink);
+  }
+  .modal textarea { font-family: 'IBM Plex Mono', monospace; font-size: 0.83rem; line-height: 1.55; min-height: 260px; resize: vertical; }
+  .modal .row { display: flex; gap: 14px; align-items: center; }
+  .modal .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .modal .checkbox-row input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .modal .checkbox-row label { margin: 0; text-transform: none; font-weight: 500; font-size: 0.88rem; color: var(--ink); }
+  .modal-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; }
+  .modal-actions .right { display: flex; gap: 10px; }
+  .hint { font-size: 0.74rem; color: var(--ink-faint); margin-top: 6px; line-height: 1.4; }
+
+  .dbx-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .dbx-compare > div { border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 0.82rem; }
+  .dbx-compare .label { font-weight: 700; font-size: 0.72rem; color: var(--ink-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .dbx-compare ul { margin: 0; padding-left: 18px; color: var(--ink-dim); line-height: 1.7; }
+  @media (max-width: 480px) { .dbx-compare { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">
+      <h1>Notebook</h1>
+      <span class="count" id="activeCount">0 active</span>
+    </div>
+    <div class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="searchInput" placeholder="Search every note, task and follow-up…" autocomplete="off" />
+    </div>
+    <div class="topbar-actions">
+      <button class="btn primary" id="newProjectBtn" type="button">+ New project</button>
+      <span class="dbx-status" id="dbxStatus"><span class="dbx-dot" id="dbxDot"></span><span id="dbxStatusText">Dropbox not connected</span></span>
+      <button class="btn subtle" id="dbxBtn" type="button" title="Dropbox sync">Connect Dropbox</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="col-heading"><h2>Projects</h2><span class="n" id="projectsCount">0 total</span></div>
+      <div class="projects" id="projectsGrid"></div>
+    </div>
+
+    <div class="rail followups">
+      <div class="col-heading"><h2>Follow-ups</h2><span class="n" id="followupsCount">0</span></div>
+      <div id="followupsList"></div>
+    </div>
+
+    <div class="rail tasks">
+      <div class="col-heading"><h2>Tasks</h2><span class="n" id="tasksCount">0</span></div>
+      <div id="tasksList"></div>
+    </div>
+  </div>
+
+  <footer>
+    <span>All notes live in this browser's storage.</span>
+    <span id="footerDbxNote">Connect Dropbox above to back them up and sync across devices.</span>
+    <span style="margin-left:auto; display:flex; gap:14px; align-items:center;">
+      <span class="mono" id="appVersion"></span>
+      <a href="https://github.com/adambeltz2/Simple-Productivity" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://www.buymeacoffee.com/adambeltz" target="_blank" rel="noopener noreferrer">Buy me a coffee ☕</a>
+    </span>
+  </footer>
+
+  <!-- Note editor modal -->
+  <div class="modal-backdrop" id="editorBackdrop">
+    <div class="modal">
+      <h2 id="editorHeading">New project</h2>
+      <div class="field">
+        <label for="editTitle">Title</label>
+        <input type="text" id="editTitle" placeholder="e.g. Kitchen Remodel" />
+      </div>
+      <div class="field row">
+        <div style="flex:1">
+          <label for="editSortOrder">Sort order</label>
+          <input type="number" id="editSortOrder" />
+        </div>
+        <div class="checkbox-row" style="margin-top:20px;">
+          <input type="checkbox" id="editActive" checked />
+          <label for="editActive">Active</label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="editBody">Note (Markdown)</label>
+        <textarea id="editBody" spellcheck="false"></textarea>
+        <div class="hint">Tasks: <code class="mono">- [ ] do the thing</code> &nbsp;·&nbsp; Follow-ups: <code class="mono">!followup: check back with someone</code></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="deleteProjectBtn" type="button" style="color:var(--danger); border-color:var(--danger);">Delete</button>
+        <div class="right">
+          <button class="btn" id="cancelEditBtn" type="button">Cancel</button>
+          <button class="btn primary" id="saveProjectBtn" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dropbox info modal (first-connect explainer, mirrors Simple Gantt) -->
+  <div class="modal-backdrop" id="dropboxInfoBackdrop">
+    <div class="modal" style="max-width:520px;">
+      <h2>Dropbox is optional</h2>
+      <p style="color:var(--ink-dim); font-size:0.88rem; line-height:1.6;">Notebook works fully offline in this browser. Connecting Dropbox adds an encrypted backup that you can restore from on another device — it never replaces this browser's storage as the source of truth.</p>
+      <div class="dbx-compare">
+        <div>
+          <div class="label">Without Dropbox</div>
+          <ul><li>Notes stay in this browser</li><li>Nothing leaves your machine</li><li>No account needed</li></ul>
+        </div>
+        <div>
+          <div class="label">With Dropbox</div>
+          <ul><li>Backed up automatically</li><li>Restorable on another device</li><li>You can disconnect anytime</li></ul>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="dbxInfoCancel" type="button">Maybe later</button>
+        <button class="btn primary" id="dbxInfoContinue" type="button">Continue to Dropbox</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ======================================================================
+  // Data model & storage
+  //
+  // localStorage is the source of truth (see CLAUDE.md #5). Each project:
+  //   { id, title, active, sortOrder, body, updatedAt }
+  // Tasks/follow-ups are never stored separately -- they are parsed out of
+  // `body` on every render, the same way a markdown file would be.
+  // ======================================================================
+
+  // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
+  // see the "Versioning" section of README.md for the exact process.
+  const APP_VERSION = "0.1.0";
+
+  const STORAGE_KEY = "notebook_projects";
+  const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
+  const FOLLOWUP_RE = /^\s*!followup:\s*(.+)$/i;
+
+  function uid() {
+    return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function seedProjects() {
+    const now = Date.now();
+    return [
+      {
+        id: uid(), title: "Kitchen Remodel", active: true, sortOrder: 1, updatedAt: now - 2 * 3600e3,
+        body: "# Kitchen Remodel\n\nCabinet quote came in at $14,200. Need to confirm with Dana before signing off on the oak finish vs walnut.\n\n- [ ] Order walnut sample panel\n- [ ] Schedule electrician walkthrough\n\n!followup: Confirm oak vs walnut finish with Dana\n"
+      },
+      {
+        id: uid(), title: "Client — Meridian Co.", active: true, sortOrder: 2, updatedAt: now - 24 * 3600e3,
+        body: "# Meridian Co. Engagement\n\nPhase 2 scope doc sent for review. Waiting on legal redline before the kickoff call next Tuesday.\n\n!followup: Chase legal for the Phase 2 redline\n!followup: Ask kickoff call to move to Wed if redline slips\n"
+      },
+      {
+        id: uid(), title: "Personal Taxes 2025", active: true, sortOrder: 3, updatedAt: now - 3 * 86400e3,
+        body: "# Taxes\n\nMissing 1099 from the consulting gig in March. Everything else is in the folder and reconciled against the spreadsheet.\n\n- [x] Email accountant re: missing 1099\n"
+      },
+      {
+        id: uid(), title: "Half Marathon Training", active: true, sortOrder: 4, updatedAt: now - 5 * 86400e3,
+        body: "# Training Log\n\nWeek 6 of 12. Long run Sunday, 11 miles. Knee felt fine after the new insoles -- keep an eye on it anyway.\n"
+      },
+      {
+        id: uid(), title: "Garage Sale (archived)", active: false, sortOrder: 5, updatedAt: new Date("2026-08-02").getTime(),
+        body: "# Garage Sale\n\nCleared $340. Leftover items dropped at Goodwill on the 3rd. Sign back in the shed.\n"
+      },
+      {
+        id: uid(), title: "Old Apartment Move-out", active: false, sortOrder: 6, updatedAt: new Date("2026-06-14").getTime(),
+        body: "# Move-out\n\nDeposit refunded in full, $1,800. Closed out utilities on the 20th.\n"
+      }
+    ];
+  }
+
+  function loadProjects() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        const seeded = seedProjects();
+        saveProjects(seeded);
+        return seeded;
+      }
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : seedProjects();
+    } catch (err) {
+      console.error("Notebook: failed to read localStorage, starting fresh.", err);
+      return seedProjects();
+    }
+  }
+
+  function saveProjects(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  let projects = loadProjects();
+  let showInactive = false;
+  let searchQuery = "";
+  let editingId = null; // null while creating a new project
+
+  // ======================================================================
+  // Markdown-lite parsing: title/preview/tasks/follow-ups from a body
+  // ======================================================================
+
+  function deriveFromBody(project) {
+    const lines = project.body.split(/\r?\n/);
+    const tasks = [];
+    const followups = [];
+    const previewParts = [];
+    let derivedTitle = "";
+
+    lines.forEach((line, idx) => {
+      const taskMatch = line.match(TASK_RE);
+      if (taskMatch) {
+        tasks.push({ text: taskMatch[2].trim(), done: /x/i.test(taskMatch[1]), line: idx });
+        return;
+      }
+      const followupMatch = line.match(FOLLOWUP_RE);
+      if (followupMatch) {
+        followups.push({ text: followupMatch[1].trim(), line: idx });
+        return;
+      }
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (!derivedTitle && trimmed.startsWith("# ")) {
+        derivedTitle = trimmed.slice(2).trim();
+        return;
+      }
+      if (previewParts.length < 3) {
+        previewParts.push(trimmed.replace(/^#+\s*/, "").replace(/^[-*]\s+/, ""));
+      }
+    });
+
+    return {
+      title: (project.title && project.title.trim()) || derivedTitle || "Untitled",
+      preview: previewParts.join(" "),
+      tasks,
+      followups
+    };
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function formatUpdated(ts) {
+    if (!ts) return "";
+    const diffMs = Date.now() - ts;
+    const hr = 3600e3, day = 86400e3;
+    if (diffMs < hr) return "updated just now";
+    if (diffMs < day) return `updated ${Math.round(diffMs / hr)}h ago`;
+    const days = Math.round(diffMs / day);
+    if (days === 1) return "updated yesterday";
+    if (days < 14) return `updated ${days}d ago`;
+    return `updated ${new Date(ts).toLocaleDateString()}`;
+  }
+
+  // ======================================================================
+  // Rendering
+  // ======================================================================
+
+  const projectsGrid = document.getElementById("projectsGrid");
+  const projectsCountEl = document.getElementById("projectsCount");
+  const activeCountEl = document.getElementById("activeCount");
+  const followupsList = document.getElementById("followupsList");
+  const followupsCountEl = document.getElementById("followupsCount");
+  const tasksList = document.getElementById("tasksList");
+  const tasksCountEl = document.getElementById("tasksCount");
+
+  function matchesSearch(project, derived, query) {
+    if (!query) return true;
+    const haystack = (derived.title + " " + project.body).toLowerCase();
+    return haystack.includes(query);
+  }
+
+  function render() {
+    const query = searchQuery.trim().toLowerCase();
+    const derivedById = new Map();
+    projects.forEach((p) => derivedById.set(p.id, deriveFromBody(p)));
+
+    const sorted = [...projects].sort((a, b) => (a.sortOrder - b.sortOrder) || derivedById.get(a.id).title.localeCompare(derivedById.get(b.id).title));
+    const active = sorted.filter((p) => p.active);
+    const inactive = sorted.filter((p) => !p.active);
+
+    activeCountEl.textContent = `${active.length} active`;
+    projectsCountEl.textContent = `${projects.length} total · sorted manually`;
+
+    const visibleActive = active.filter((p) => matchesSearch(p, derivedById.get(p.id), query));
+    const visibleInactive = (showInactive || query) ? inactive.filter((p) => matchesSearch(p, derivedById.get(p.id), query)) : [];
+
+    let html = "";
+    let num = 0;
+    visibleActive.forEach((p) => {
+      num++;
+      html += projectCardHtml(p, derivedById.get(p.id), num);
+    });
+    visibleInactive.forEach((p) => {
+      html += projectCardHtml(p, derivedById.get(p.id), null);
+    });
+
+    if (!visibleActive.length && !visibleInactive.length) {
+      html += `<div class="no-results">No notes match "${escapeHtml(searchQuery)}".</div>`;
+    }
+
+    if (!query && inactive.length) {
+      html += `<button type="button" class="toggle-inactive" id="toggleInactiveBtn">${showInactive ? "Hide" : "Show"} ${inactive.length} inactive project${inactive.length === 1 ? "" : "s"}</button>`;
+    }
+
+    projectsGrid.innerHTML = html;
+
+    const toggleBtn = document.getElementById("toggleInactiveBtn");
+    if (toggleBtn) toggleBtn.addEventListener("click", () => { showInactive = !showInactive; render(); });
+
+    projectsGrid.querySelectorAll(".project-card").forEach((card) => {
+      card.addEventListener("click", () => openEditor(card.dataset.id));
+    });
+
+    renderRails(active, derivedById, query);
+  }
+
+  function projectCardHtml(project, derived, num) {
+    const tags = [];
+    if (derived.tasks.length) tags.push(`<span class="tag task">${derived.tasks.length} task${derived.tasks.length === 1 ? "" : "s"}</span>`);
+    if (derived.followups.length) tags.push(`<span class="tag followup">${derived.followups.length} follow-up${derived.followups.length === 1 ? "" : "s"}</span>`);
+    return `
+      <button type="button" class="project-card ${project.active ? "" : "inactive"}" data-id="${project.id}">
+        <div class="row1">
+          <span class="project-num">${num === null ? "–" : num}</span>
+          <div>
+            <div class="project-title">${escapeHtml(derived.title)}</div>
+            <div class="project-meta">${project.active ? "" : "inactive · "}${formatUpdated(project.updatedAt)}</div>
+          </div>
+        </div>
+        <div class="project-preview">${escapeHtml(derived.preview || "(empty note)")}</div>
+        <div class="project-tags">${tags.join("")}</div>
+      </button>`;
+  }
+
+  function renderRails(activeProjects, derivedById, query) {
+    const allFollowups = [];
+    const allTasks = [];
+    activeProjects.forEach((p) => {
+      const d = derivedById.get(p.id);
+      d.followups.forEach((f) => allFollowups.push({ ...f, projectId: p.id, projectTitle: d.title }));
+      d.tasks.forEach((t) => allTasks.push({ ...t, projectId: p.id, projectTitle: d.title }));
+    });
+
+    const filteredFollowups = query ? allFollowups.filter((f) => f.text.toLowerCase().includes(query)) : allFollowups;
+    const filteredTasks = query ? allTasks.filter((t) => t.text.toLowerCase().includes(query)) : allTasks;
+
+    followupsCountEl.textContent = String(filteredFollowups.length);
+    tasksCountEl.textContent = String(filteredTasks.length);
+
+    followupsList.innerHTML = filteredFollowups.length
+      ? filteredFollowups.map((f) => `
+        <div class="rail-item">
+          <div class="text">${escapeHtml(f.text)}</div>
+          <button type="button" class="from" data-id="${f.projectId}">${escapeHtml(f.projectTitle)}</button>
+        </div>`).join("")
+      : `<div class="rail-empty">Nothing to follow up on.</div>`;
+
+    tasksList.innerHTML = filteredTasks.length
+      ? filteredTasks.map((t, i) => `
+        <div class="rail-item ${t.done ? "done" : ""}" data-project="${t.projectId}" data-line="${t.line}">
+          <input type="checkbox" ${t.done ? "checked" : ""} id="task-${i}" />
+          <div><div class="text">${escapeHtml(t.text)}</div><button type="button" class="from" data-id="${t.projectId}">${escapeHtml(t.projectTitle)}</button></div>
+        </div>`).join("")
+      : `<div class="rail-empty">No open tasks.</div>`;
+
+    followupsList.querySelectorAll(".from").forEach((btn) => btn.addEventListener("click", () => openEditor(btn.dataset.id)));
+    tasksList.querySelectorAll(".from").forEach((btn) => btn.addEventListener("click", () => openEditor(btn.dataset.id)));
+    tasksList.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+      cb.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", (e) => toggleTask(e.target.closest(".rail-item").dataset.project, Number(e.target.closest(".rail-item").dataset.line)));
+    });
+  }
+
+  function toggleTask(projectId, lineIdx) {
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+    const lines = project.body.split(/\r?\n/);
+    const line = lines[lineIdx];
+    const match = line && line.match(TASK_RE);
+    if (!match) return;
+    const nowDone = !/x/i.test(match[1]);
+    lines[lineIdx] = line.replace(TASK_RE, `- [${nowDone ? "x" : " "}] $2`);
+    project.body = lines.join("\n");
+    project.updatedAt = Date.now();
+    saveProjects(projects);
+    render();
+  }
+
+  // ======================================================================
+  // Editor modal
+  // ======================================================================
+
+  const editorBackdrop = document.getElementById("editorBackdrop");
+  const editorHeading = document.getElementById("editorHeading");
+  const editTitle = document.getElementById("editTitle");
+  const editSortOrder = document.getElementById("editSortOrder");
+  const editActive = document.getElementById("editActive");
+  const editBody = document.getElementById("editBody");
+  const deleteProjectBtn = document.getElementById("deleteProjectBtn");
+
+  function openEditor(id) {
+    editingId = id || null;
+    if (editingId) {
+      const project = projects.find((p) => p.id === editingId);
+      if (!project) return;
+      editorHeading.textContent = "Edit project";
+      editTitle.value = project.title || "";
+      editSortOrder.value = project.sortOrder;
+      editActive.checked = !!project.active;
+      editBody.value = project.body;
+      deleteProjectBtn.style.display = "";
+    } else {
+      editorHeading.textContent = "New project";
+      editTitle.value = "";
+      editSortOrder.value = String(projects.length + 1);
+      editActive.checked = true;
+      editBody.value = "# \n\n";
+      deleteProjectBtn.style.display = "none";
+    }
+    editorBackdrop.classList.add("active");
+    editTitle.focus();
+  }
+
+  function closeEditor() {
+    editorBackdrop.classList.remove("active");
+    editingId = null;
+  }
+
+  document.getElementById("newProjectBtn").addEventListener("click", () => openEditor(null));
+  document.getElementById("cancelEditBtn").addEventListener("click", closeEditor);
+  editorBackdrop.addEventListener("click", (e) => { if (e.target === editorBackdrop) closeEditor(); });
+
+  document.getElementById("saveProjectBtn").addEventListener("click", () => {
+    const title = editTitle.value.trim();
+    const sortOrder = Number(editSortOrder.value) || 0;
+    const active = editActive.checked;
+    const body = editBody.value;
+
+    if (editingId) {
+      const project = projects.find((p) => p.id === editingId);
+      if (project) {
+        project.title = title;
+        project.sortOrder = sortOrder;
+        project.active = active;
+        project.body = body;
+        project.updatedAt = Date.now();
+      }
+    } else {
+      projects.push({ id: uid(), title, sortOrder, active, body, updatedAt: Date.now() });
+    }
+    saveProjects(projects);
+    closeEditor();
+    render();
+  });
+
+  deleteProjectBtn.addEventListener("click", () => {
+    if (!editingId) return;
+    if (!confirm("Delete this project? This only removes it from this browser -- any Dropbox backup is untouched.")) return;
+    projects = projects.filter((p) => p.id !== editingId);
+    saveProjects(projects);
+    closeEditor();
+    render();
+  });
+
+  document.getElementById("searchInput").addEventListener("input", (e) => {
+    searchQuery = e.target.value;
+    render();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && editorBackdrop.classList.contains("active")) closeEditor();
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      document.getElementById("searchInput").focus();
+    }
+  });
+
+  // ======================================================================
+  // Dropbox: optional backup/sync layer. NEVER the source of truth.
+  //
+  // Placeholder wiring, per CLAUDE.md #5: OAuth2 implicit grant (no
+  // client secret -- this is a static SPA with no server to hold one),
+  // full-page redirect to Dropbox and back, token kept in localStorage.
+  // DROPBOX_APP_KEY is intentionally blank until a real app is registered
+  // in the Dropbox App Console -- see backlog.md [FEATURE].
+  // ======================================================================
+
+  const DROPBOX_APP_KEY = ""; // TODO(dropbox): set once an app is registered at dropbox.com/developers/apps
+  const DROPBOX_BACKUP_PATH = "/Notebook Backups/notebook.json";
+  let dbx = null;
+
+  const dbxBtn = document.getElementById("dbxBtn");
+  const dbxDot = document.getElementById("dbxDot");
+  const dbxStatusText = document.getElementById("dbxStatusText");
+  const footerDbxNote = document.getElementById("footerDbxNote");
+  const dropboxInfoBackdrop = document.getElementById("dropboxInfoBackdrop");
+
+  function setDropboxUi(state, detail) {
+    dbxDot.className = "dbx-dot" + (state === "connected" ? " connected" : state === "error" ? " error" : "");
+    if (state === "connected") {
+      dbxStatusText.textContent = "Dropbox connected";
+      dbxBtn.textContent = "Disconnect";
+      footerDbxNote.textContent = "Backed up to Dropbox — this browser stays the source of truth.";
+    } else if (state === "error") {
+      dbxStatusText.textContent = detail || "Dropbox session expired";
+      dbxBtn.textContent = "Reconnect Dropbox";
+      footerDbxNote.textContent = "Connect Dropbox above to back your notes up and sync across devices.";
+    } else {
+      dbxStatusText.textContent = "Dropbox not connected";
+      dbxBtn.textContent = "Connect Dropbox";
+      footerDbxNote.textContent = "Connect Dropbox above to back your notes up and sync across devices.";
+    }
+  }
+
+  function initDropboxFromRedirect() {
+    if (location.hash.includes("access_token")) {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const token = params.get("access_token");
+      if (token) {
+        localStorage.setItem("dropbox_token", token);
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+    }
+    const saved = localStorage.getItem("dropbox_token");
+    if (saved && window.Dropbox) {
+      dbx = new Dropbox.Dropbox({ accessToken: saved });
+      setDropboxUi("connected");
+    } else {
+      setDropboxUi("disconnected");
+    }
+  }
+
+  function dropboxLogin() {
+    if (!DROPBOX_APP_KEY) {
+      alert("Dropbox isn't configured yet in this deployment (DROPBOX_APP_KEY is a placeholder). See backlog.md.");
+      return;
+    }
+    dropboxInfoBackdrop.classList.add("active");
+  }
+
+  document.getElementById("dbxInfoCancel").addEventListener("click", () => dropboxInfoBackdrop.classList.remove("active"));
+  dropboxInfoBackdrop.addEventListener("click", (e) => { if (e.target === dropboxInfoBackdrop) dropboxInfoBackdrop.classList.remove("active"); });
+  document.getElementById("dbxInfoContinue").addEventListener("click", () => {
+    const redirectUri = encodeURIComponent(location.origin + location.pathname);
+    window.location.href = `https://www.dropbox.com/oauth2/authorize?client_id=${DROPBOX_APP_KEY}&response_type=token&redirect_uri=${redirectUri}`;
+  });
+
+  function disconnectDropbox() {
+    if (!confirm("Disconnect this browser from Dropbox?\n\nYour local projects aren't affected, and nothing is deleted from Dropbox.")) return;
+    dbx = null;
+    localStorage.removeItem("dropbox_token");
+    setDropboxUi("disconnected");
+  }
+
+  function handleDropboxAuthError(err) {
+    const status = err && (err.status || (err.error && err.error.status));
+    if (status === 401) {
+      dbx = null;
+      localStorage.removeItem("dropbox_token");
+      setDropboxUi("error", "Dropbox session expired — reconnect");
+      return true;
+    }
+    return false;
+  }
+
+  function backupToDropbox() {
+    if (!dbx) { dropboxLogin(); return; }
+    const payload = JSON.stringify(projects, null, 2);
+    dbx.filesUpload({ path: DROPBOX_BACKUP_PATH, contents: payload, mode: { ".tag": "overwrite" } })
+      .then(() => setDropboxUi("connected"))
+      .catch((err) => { if (!handleDropboxAuthError(err)) console.error("Dropbox backup failed:", err); });
+  }
+
+  dbxBtn.addEventListener("click", () => {
+    if (dbx) disconnectDropbox();
+    else dropboxLogin();
+  });
+
+  // Expose for the (future) restore UI / tests -- see backlog.md.
+  window.__notebook = { backupToDropbox, handleDropboxAuthError };
+
+  // ======================================================================
+  // Boot
+  // ======================================================================
+
+  document.getElementById("appVersion").textContent = `v${APP_VERSION}`;
+  initDropboxFromRedirect();
+  render();
+})();
+</script>
+</body>
+</html>
