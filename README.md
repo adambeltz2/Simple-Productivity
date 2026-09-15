@@ -2,6 +2,8 @@
 
 **Live:** https://adambeltz2.github.io/Simple-Productivity/
 
+<a href="https://www.buymeacoffee.com/adambeltz" target="_blank" rel="noopener noreferrer"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy me a coffee" height="36" /></a>
+
 A single dashboard of "projects" — each one an editable markdown note. The
 dashboard numbers your **active** projects (1 through N, in the sort order
 you choose), shows a preview of each note, and pulls every `- [ ] task` and
