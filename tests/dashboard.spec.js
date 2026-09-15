@@ -341,15 +341,21 @@ async function stubDropboxSdk(page) {
         this.filesDownload = (args) => {
           const byPath = window.__dbxFiles.find((f) => f.path_lower === (args.path || '').toLowerCase());
           let contents = byPath ? byPath.contents : null;
-          if (contents === null) {
-            // Not a path -- try matching a rev id directly, exactly as real
-            // Dropbox's filesDownload accepts a revision id as `path` too.
+          if (contents === null && (args.path || '').startsWith('rev:')) {
+            // Real Dropbox's `path` argument accepts a specific revision
+            // only in this "rev:<id>" form (see the path regex in
+            // Dropbox's own /files/download docs) -- a bare rev id is
+            // rejected, so this mock enforces the same prefix rather than
+            // also matching the bare id, which would let a caller passing
+            // the wrong format pass tests while failing against the real API.
+            const revId = args.path.slice('rev:'.length);
             for (const f of window.__dbxFiles) {
-              const found = (f.revisions || []).find((r) => r.rev === args.path);
+              const found = (f.revisions || []).find((r) => r.rev === revId);
               if (found) { contents = found.contents; break; }
             }
           }
-          const blob = new Blob([contents || ''], { type: 'text/markdown' });
+          if (contents === null) return Promise.reject({ error: { error_summary: 'path/not_found/...' }, status: 409 });
+          const blob = new Blob([contents], { type: 'text/markdown' });
           return Promise.resolve({ result: { fileBlob: blob } });
         };
         this.filesListRevisions = (args) => {
