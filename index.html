@@ -366,7 +366,7 @@
 
   // Bump on every deploy-intended change, alongside a CHANGELOG.md entry --
   // see the "Versioning" section of README.md for the exact process.
-  const APP_VERSION = "0.12.0";
+  const APP_VERSION = "0.12.1";
 
   const STORAGE_KEY = "notebook_projects";
   const TASK_RE = /^\s*-\s*\[( |x|X)\]\s+(.+)$/;
@@ -1384,7 +1384,13 @@
 
   function restoreVersion(rev, serverModified) {
     closeVersionHistory();
-    downloadProjectFile(rev) // filesDownload's `path` also accepts a rev id directly.
+    // Dropbox's `path` argument accepts a specific revision, but only in
+    // its "rev:<id>" form (see the path regex in Dropbox's own API docs
+    // for /files/download) -- the bare rev id filesListRevisions() returns
+    // is rejected. The original version of this code passed the bare id
+    // and worked in tests only because the mock Dropbox client didn't
+    // enforce that format; it failed against the real API in production.
+    downloadProjectFile("rev:" + rev)
       .then((parsed) => {
         editTitle.value = parsed.title || "";
         editSortOrder.value = String(parsed.sortOrder || 0);

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; see the "Versioning" section of `README.md` for the
 bump process.
 
+## [0.12.1] - 2026-09-15
+
+### Fixed
+- Restoring a version from "Version history" always failed against real
+  Dropbox ("Couldn't load that version from Dropbox.") even though the
+  version list itself loaded fine. `filesDownload`'s `path` argument only
+  accepts a specific revision in `"rev:<id>"` form; the code was passing
+  the bare revision id returned by `filesListRevisions()`, which the real
+  API rejects outright. This passed in tests only because the mock Dropbox
+  client didn't enforce that format -- it now does, so this class of bug
+  fails locally instead of only in production.
+
 ## [0.12.0] - 2026-09-14
 
 ### Fixed
